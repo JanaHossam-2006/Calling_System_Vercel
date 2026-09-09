@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة الإدارة - نظام إدارة الطلبات</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    <!-- Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+    <!-- Charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="header-icon">
+                    <i class="ri-shield-admin-line"></i>
+                </div>
+                <div class="header-text">
+                    <h1>لوحة الإدارة</h1>
+                    <div class="last-updated">
+                        آخر تحديث: <span id="lastUpdated">جاري التحميل...</span>
+                    </div>
+                </div>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <a href="index.html" class="admin-btn">
+                    <i class="ri-arrow-left-line"></i>
+                    العودة للداشبورد
+                </a>
+                <button onclick="logout()" class="admin-btn" style="background-color: #f44336;">
+                    <i class="ri-logout-circle-line"></i>
+                    تسجيل الخروج
+                </button>
+            </div>
+        </header>
+
+        <!-- Admin Tabs -->
+        <div class="tabs-container" id="adminTabs"></div>
+
+        <!-- Loading -->
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>جاري تحميل البيانات...</p>
+        </div>
+
+        <!-- Dashboard Content -->
+        <div id="dashboard" style="display: none;">
+            <!-- KPIs Section -->
+            <section class="kpis-section">
+                <h2><i class="ri-dashboard-3-line"></i> المؤشرات الرئيسية</h2>
+                <div class="kpis-grid">
+                    <div class="kpi-card total">
+                        <div class="kpi-icon"><i class="ri-shopping-cart-2-line"></i></div>
+                        <div class="kpi-content">
+                            <div class="kpi-value" id="totalOrders">0</div>
+                            <div class="kpi-label">إجمالي الطلبات</div>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card delivered">
+                        <div class="kpi-icon"><i class="ri-checkbox-circle-fill"></i></div>
+                        <div class="kpi-content">
+                            <div class="kpi-value" id="deliveredOrders">0</div>
+                            <div class="kpi-label">المسلمة</div>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card not-delivered">
+                        <div class="kpi-icon"><i class="ri-close-circle-fill"></i></div>
+                        <div class="kpi-content">
+                            <div class="kpi-value" id="notDeliveredOrders">0</div>
+                            <div class="kpi-label">غير المسلمة</div>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card percentage">
+                        <div class="kpi-icon"><i class="ri-percent-line"></i></div>
+                        <div class="kpi-content">
+                            <div class="kpi-value" id="deliveryPercentage">0%</div>
+                            <div class="kpi-label">نسبة التسليم</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Admin Actions Section -->
+            <section class="filters-section">
+                <h2><i class="ri-settings-3-line"></i> الإجراءات الإدارية</h2>
+                <div class="filters-grid">
+                    <button onclick="AdminActions.recalculateData()" class="btn-primary">
+                        <i class="ri-refresh-line"></i>
+                        إعادة حساب البيانات
+                    </button>
+                    <button onclick="AdminActions.showUploadForm()" class="btn-primary">
+                        <i class="ri-upload-cloud-2-line"></i>
+                        رفع تسليمات (CSV)
+                    </button>
+                    <button onclick="AdminActions.exportAllData()" class="btn-success">
+                        <i class="ri-download-2-line"></i>
+                        تصدير كل البيانات
+                    </button>
+                    <button onclick="AdminActions.searchArchive()" class="btn-primary">
+                        <i class="ri-archive-line"></i>
+                        البحث في الأرشيف
+                    </button>
+                </div>
+            </section>
+
+            <!-- Employee Statistics -->
+            <section class="stats-section">
+                <h2><i class="ri-users-line"></i> إحصائيات الموظفين</h2>
+                <div class="table-container">
+                    <div class="table-wrapper">
+                        <table id="employeeTable">
+                            <thead>
+                                <tr>
+                                    <th>الموظفة</th>
+                                    <th>إجمالي الطلبات</th>
+                                    <th>مسلم</th>
+                                    <th>غير مسلم</th>
+                                    <th>نسبة التسليم</th>
+                                </tr>
+                            </thead>
+                            <tbody id="employeeTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Store Statistics -->
+            <section class="stats-section">
+                <h2><i class="ri-store-2-line"></i> إحصائيات المتاجر</h2>
+                <div class="table-container">
+                    <div class="table-wrapper">
+                        <table id="storeTable">
+                            <thead>
+                                <tr>
+                                    <th>المتجر</th>
+                                    <th>إجمالي الطلبات</th>
+                                    <th>مسلم</th>
+                                    <th>غير مسلم</th>
+                                    <th>نسبة التسليم</th>
+                                </tr>
+                            </thead>
+                            <tbody id="storeTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- All Orders -->
+            <section class="stats-section">
+                <h2><i class="ri-list-ordered"></i> كل الطلبات</h2>
+                <div class="table-container">
+                    <div class="table-wrapper">
+                        <table id="ordersTable">
+                            <thead>
+                                <tr>
+                                    <th>كود الطلب</th>
+                                    <th>رقم العميل</th>
+                                    <th>الموظفة</th>
+                                    <th>المتجر</th>
+                                    <th>حالة التسليم</th>
+                                    <th>الإجراءات</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ordersTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Follow-up Orders -->
+            <section class="stats-section">
+                <h2><i class="ri-phone-line"></i> الطلبات المعلقة</h2>
+                <div class="table-container">
+                    <div class="table-wrapper">
+                        <table id="followUpTable">
+                            <thead>
+                                <tr>
+                                    <th>كود الطلب</th>
+                                    <th>الموظفة</th>
+                                    <th>حالة المتابعة</th>
+                                    <th>التاريخ</th>
+                                    <th>الإجراءات</th>
+                                </tr>
+                            </thead>
+                            <tbody id="followUpTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- Upload Modal -->
+    <div class="modal-overlay" id="uploadModal" onclick="closeUploadModal()">
+        <div class="bottom-sheet" style="position: relative; max-width: 500px; margin: auto; top: 50%; transform: translateY(-50%);">
+            <div class="sheet-header">
+                <h3>رفع البيانات</h3>
+                <button class="close-btn" onclick="closeUploadModal()">&times;</button>
+            </div>
+            <div class="form-group">
+                <label>اختر ملف CSV:</label>
+                <input type="file" id="csvFile" accept=".csv" />
+            </div>
+            <button onclick="AdminActions.uploadCSV()" class="btn-primary" style="width: 100%;">
+                <i class="ri-upload-2-line"></i>
+                رفع
+            </button>
+        </div>
+    </div>
+
+    <!-- Bottom Sheet -->
+    <div class="modal-overlay" id="modalOverlay" onclick="closeBottomSheet()"></div>
+    <div class="bottom-sheet"></div>
+
+    <!-- Scripts -->
+    <script src="js/supabase.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/charts.js"></script>
+    <script src="js/dashboard.js"></script>
+
+    <script>
+        // Admin Actions
+        class AdminActions {
+            static async recalculateData() {
+                try {
+                    const result = await DatabaseFunctions.recalculateColumns();
+                    if (result.success) {
+                        alert('تم إعادة حساب البيانات بنجاح');
+                        location.reload();
+                    } else {
+                        alert('خطأ في إعادة الحساب');
+                    }
+                } catch (error) {
+                    console.error('Recalculation error:', error);
+                    alert('حدث خطأ');
+                }
+            }
+
+            static showUploadForm() {
+                document.getElementById('uploadModal').style.display = 'flex';
+            }
+
+            static async uploadCSV() {
+                const file = document.getElementById('csvFile').files[0];
+                if (!file) {
+                    alert('اختر ملف أولاً');
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    const csv = e.target.result;
+                    const lines = csv.split('\\n');
+                    const headers = lines[0].split(',');
+                    
+                    const data = lines.slice(1).map(line => {
+                        const values = line.split(',');
+                        const obj = {};
+                        headers.forEach((header, i) => {
+                            obj[header.trim()] = values[i]?.trim();
+                        });
+                        return obj;
+                    }).filter(row => row.كود_الطلب);
+
+                    // Upload
+                    const { error } = await DeliveriesAPI.uploadDeliveriesCSV(data);
+                    if (error) {
+                        alert('خطأ: ' + error.message);
+                    } else {
+                        alert('تم رفع البيانات بنجاح');
+                        closeUploadModal();
+                        location.reload();
+                    }
+                };
+                reader.readAsText(file);
+            }
+
+            static async exportAllData() {
+                const { data: orders } = await OrdersAPI.getAllOrders();
+                const csv = orders.map(o => [
+                    o.order_code, o.customer_phone, o.employee_name, o.store,
+                    o.delivered === 'yes' ? 'مسلم' : 'غير مسلم'
+                ]);
+
+                const csvContent = [['كود_الطلب', 'رقم_العميل', 'الموظفة', 'المتجر', 'حالة_التسليم'], ...csv]
+                    .map(row => row.join(','))
+                    .join('\\n');
+
+                const blob = new Blob([csvContent], { type: 'text/csv' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `orders_${new Date().getTime()}.csv`;
+                link.click();
+            }
+
+            static searchArchive() {
+                const code = prompt('أدخل كود الطلب للبحث:');
+                if (code) {
+                    ArchiveAPI.searchArchivedOrders(code).then(({ data }) => {
+                        if (data && data.length > 0) {
+                            this.showArchivedOrder(data[0]);
+                        } else {
+                            alert('لم يتم العثور على الطلب');
+                        }
+                    });
+                }
+            }
+
+            static showArchivedOrder(order) {
+                const sheet = document.querySelector('.bottom-sheet');
+                sheet.innerHTML = `
+                    <div class="sheet-header">
+                        <h3>الطلب المؤرشف</h3>
+                        <button class="close-btn" onclick="this.closest('.bottom-sheet').classList.remove('active')">&times;</button>
+                    </div>
+                    <div class="sheet-content">
+                        <div class="form-group">
+                            <label>كود الطلب:</label>
+                            <input type="text" value="${order.order_code}" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>رقم العميل:</label>
+                            <input type="text" value="${order.customer_phone || ''}" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>حالة العميل:</label>
+                            <input type="text" value="${order.client_status || ''}" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>ملاحظات:</label>
+                            <textarea readonly>${order.admin_note || ''}</textarea>
+                        </div>
+                        <button onclick="AdminActions.editArchived('${order.order_code}')" class="btn-primary" style="width: 100%;">
+                            <i class="ri-edit-line"></i>
+                            تعديل (أرشيف)
+                        </button>
+                    </div>
+                `;
+                sheet.classList.add('active');
+                document.getElementById('modalOverlay').classList.add('active');
+            }
+
+            static async editArchived(code) {
+                const note = prompt('أدخل الملاحظة الجديدة:');
+                if (note !== null) {
+                    const { error } = await ArchiveAPI.updateArchivedOrder(code, { admin_note: note });
+                    if (!error) {
+                        alert('تم التحديث بنجاح');
+                        this.searchArchive();
+                    }
+                }
+            }
+        }
+
+        function closeUploadModal() {
+            document.getElementById('uploadModal').style.display = 'none';
+        }
+
+        function closeBottomSheet() {
+            document.querySelector('.bottom-sheet').classList.remove('active');
+            document.getElementById('modalOverlay').classList.remove('active');
+        }
+
+        async function logout() {
+            const result = await Auth.logout();
+            if (result.success) {
+                window.location.href = 'login.html';
+            }
+        }
+
+        // Check if admin
+        document.addEventListener('DOMContentLoaded', async () => {
+            await Auth.init();
+            if (!Auth.isAdmin?.()) {
+                alert('ليس لديك صلاحية الوصول لهذه الصفحة');
+                window.location.href = 'index.html';
+            }
+            Dashboard.init();
+        });
+    </script>
+</body>
+</html>

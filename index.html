@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة القيادة - نظام إدارة الطلبات</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    <!-- Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+    <!-- Charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="header-icon">
+                    <i class="ri-line-chart-line"></i>
+                </div>
+                <div class="header-text">
+                    <h1>نظام إدارة الطلبات والمتابعة</h1>
+                    <div class="last-updated">
+                        آخر تحديث: <span id="lastUpdated">جاري التحميل...</span>
+                    </div>
+                </div>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <a href="admin.html" class="admin-btn" style="display: none;" id="adminLink">
+                    <i class="ri-shield-admin-line"></i>
+                    لوحة الإدارة
+                </a>
+                <button onclick="logout()" class="admin-btn" style="background-color: #f44336;">
+                    <i class="ri-logout-circle-line"></i>
+                    تسجيل الخروج
+                </button>
+            </div>
+        </header>
+
+        <!-- Tabs Navigation -->
+        <div class="tabs-container"></div>
+
+        <!-- Loading Spinner -->
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>جاري تحميل البيانات...</p>
+        </div>
+
+        <!-- Error Message -->
+        <div id="error" class="error" style="display: none;">
+            <p>حدث خطأ في تحميل البيانات. يرجى المحاولة مرة أخرى.</p>
+            <button onclick="Dashboard.retry()">إعادة المحاولة</button>
+        </div>
+
+        <!-- Dashboard Content -->
+        <div id="dashboard" style="display: none;">
+            <!-- KPIs Section -->
+            <section class="kpis-section">
+                <h2><i class="ri-dashboard-3-line"></i> المؤشرات الرئيسية</h2>
+                <div class="kpis-grid">
+                    <div class="kpi-card total">
+                        <div class="kpi-icon">
+                            <i class="ri-shopping-cart-2-line"></i>
+                        </div>
+                        <div class="kpi-content">
+                            <div class="kpi-value" id="totalOrders">0</div>
+                            <div class="kpi-label">إجمالي الطلبات</div>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card delivered">
+                        <div class="kpi-icon">
+                            <i class="ri-checkbox-circle-fill"></i>
+                        </div>
+                        <div class="kpi-content">
+                            <div class="kpi-value" id="deliveredOrders">0</div>
+                            <div class="kpi-label">الطلبات المسلمة</div>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card not-delivered">
+                        <div class="kpi-icon">
+                            <i class="ri-close-circle-fill"></i>
+                        </div>
+                        <div class="kpi-content">
+                            <div class="kpi-value" id="notDeliveredOrders">0</div>
+                            <div class="kpi-label">الطلبات غير المسلمة</div>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card percentage">
+                        <div class="kpi-icon">
+                            <i class="ri-percent-line"></i>
+                        </div>
+                        <div class="kpi-content">
+                            <div class="kpi-value" id="deliveryPercentage">0%</div>
+                            <div class="kpi-label">نسبة التسليم</div>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card percentage-negative">
+                        <div class="kpi-icon">
+                            <i class="ri-error-warning-fill"></i>
+                        </div>
+                        <div class="kpi-content">
+                            <div class="kpi-value" id="notDeliveredPercentage">0%</div>
+                            <div class="kpi-label">نسبة عدم التسليم</div>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card call-attempts">
+                        <div class="kpi-icon">
+                            <i class="ri-phone-line"></i>
+                        </div>
+                        <div class="kpi-content">
+                            <div class="kpi-value" id="averageCallAttempts">0</div>
+                            <div class="kpi-label">متوسط محاولات الاتصال</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Filters Section -->
+            <section class="filters-section">
+                <h2><i class="ri-filter-3-line"></i> الفلاتر</h2>
+                <div class="filters-grid">
+                    <div class="filter-group">
+                        <label>
+                            <i class="ri-user-3-line"></i>
+                            الموظفة:
+                        </label>
+                        <div class="multi-select-dropdown" id="employeeDropdown">
+                            <div class="multi-select-button" onclick="Filters.toggleDropdown('employeeDropdown')">
+                                <span id="employeeSelected">جميع الموظفات</span>
+                                <i class="ri-arrow-down-s-line"></i>
+                            </div>
+                            <div class="multi-select-options" id="employeeOptions"></div>
+                        </div>
+                    </div>
+
+                    <div class="filter-group">
+                        <label>
+                            <i class="ri-store-2-line"></i>
+                            المتجر:
+                        </label>
+                        <div class="multi-select-dropdown" id="storeDropdown">
+                            <div class="multi-select-button" onclick="Filters.toggleDropdown('storeDropdown')">
+                                <span id="storeSelected">جميع المتاجر</span>
+                                <i class="ri-arrow-down-s-line"></i>
+                            </div>
+                            <div class="multi-select-options" id="storeOptions"></div>
+                        </div>
+                    </div>
+
+                    <div class="filter-group">
+                        <label>
+                            <i class="ri-user-star-line"></i>
+                            حالة العميل:
+                        </label>
+                        <div class="multi-select-dropdown" id="clientStatusDropdown">
+                            <div class="multi-select-button" onclick="Filters.toggleDropdown('clientStatusDropdown')">
+                                <span id="clientStatusSelected">جميع الحالات</span>
+                                <i class="ri-arrow-down-s-line"></i>
+                            </div>
+                            <div class="multi-select-options" id="clientStatusOptions"></div>
+                        </div>
+                    </div>
+
+                    <div class="filter-actions">
+                        <button onclick="Filters.applyFilters()" class="btn-primary">
+                            <i class="ri-search-line"></i>
+                            تطبيق الفلاتر
+                        </button>
+                        <button onclick="Filters.clearFilters()" class="btn-secondary">
+                            <i class="ri-eraser-line"></i>
+                            مسح الفلاتر
+                        </button>
+                        <button onclick="Dashboard.exportCSV()" class="btn-success" title="تحميل البيانات الحالية">
+                            <i class="ri-download-2-line"></i>
+                            تصدير CSV
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Statistics Section -->
+            <section class="stats-section">
+                <h2><i class="ri-users-line"></i> إحصائيات الموظفين</h2>
+                <div class="stats-content">
+                    <div class="table-container">
+                        <div class="table-wrapper">
+                            <table id="employeeTable">
+                                <thead>
+                                    <tr>
+                                        <th><i class="ri-user-3-line"></i> الموظفة</th>
+                                        <th><i class="ri-list-ordered"></i> إجمالي الطلبات</th>
+                                        <th><i class="ri-checkbox-circle-line"></i> مسلم</th>
+                                        <th><i class="ri-close-circle-line"></i> غير مسلم</th>
+                                        <th><i class="ri-percent-line"></i> نسبة التسليم</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="employeeTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="employeeChart"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Store Statistics -->
+            <section class="stats-section">
+                <h2><i class="ri-store-2-line"></i> إحصائيات المتاجر</h2>
+                <div class="stats-content">
+                    <div class="table-container">
+                        <div class="table-wrapper">
+                            <table id="storeTable">
+                                <thead>
+                                    <tr>
+                                        <th><i class="ri-store-2-line"></i> المتجر</th>
+                                        <th><i class="ri-list-ordered"></i> إجمالي الطلبات</th>
+                                        <th><i class="ri-checkbox-circle-line"></i> مسلم</th>
+                                        <th><i class="ri-close-circle-line"></i> غير مسلم</th>
+                                        <th><i class="ri-percent-line"></i> نسبة التسليم</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="storeTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="storeChart"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Orders Table -->
+            <section class="stats-section">
+                <h2><i class="ri-list-ordered"></i> الطلبات</h2>
+                <div class="table-container">
+                    <div class="table-wrapper">
+                        <table id="ordersTable">
+                            <thead>
+                                <tr>
+                                    <th>كود الطلب</th>
+                                    <th>رقم العميل</th>
+                                    <th>الموظفة</th>
+                                    <th>المتجر</th>
+                                    <th>حالة التسليم</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ordersTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- Bottom Sheet for Order Details -->
+    <div class="modal-overlay" id="modalOverlay" onclick="document.querySelector('.bottom-sheet').classList.remove('active')"></div>
+    <div class="bottom-sheet"></div>
+
+    <!-- Scripts -->
+    <script src="js/supabase.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/charts.js"></script>
+    <script src="js/filters.js"></script>
+    <script src="js/dashboard.js"></script>
+
+    <script>
+        async function logout() {
+            const result = await Auth.logout();
+            if (result.success) {
+                window.location.href = 'login.html';
+            }
+        }
+
+        // Show admin link only for admins
+        document.addEventListener('DOMContentLoaded', () => {
+            if (Auth.isAdmin?.()) {
+                document.getElementById('adminLink').style.display = 'flex';
+            }
+        });
+    </script>
+</body>
+</html>

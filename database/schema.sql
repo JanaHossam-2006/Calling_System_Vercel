@@ -26,10 +26,10 @@ CREATE INDEX idx_users_role ON users(role);
 CREATE INDEX idx_users_store ON users(store);
 
 -- ============================================================================
--- TABLE: orders (الطلبات)
+-- TABLE: daily_orders (الطلبات اليومية)
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS orders (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+CREATE TABLE IF NOT EXISTS daily_orders (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     
     -- Core columns
     order_code TEXT UNIQUE NOT NULL,
@@ -69,15 +69,15 @@ CREATE TABLE IF NOT EXISTS orders (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_orders_order_code ON orders(order_code);
-CREATE INDEX idx_orders_customer_phone ON orders(customer_phone);
-CREATE INDEX idx_orders_employee_name ON orders(employee_name);
-CREATE INDEX idx_orders_store ON orders(store);
-CREATE INDEX idx_orders_client_status ON orders(client_status);
-CREATE INDEX idx_orders_shipment_status ON orders(shipment_status);
-CREATE INDEX idx_orders_order_date ON orders(order_date);
-CREATE INDEX idx_orders_dashboard_filter ON orders(dashboard_filter);
-CREATE INDEX idx_orders_delivered ON orders(delivered);
+CREATE INDEX IF NOT EXISTS idx_daily_orders_order_code ON daily_orders(order_code);
+CREATE INDEX IF NOT EXISTS idx_daily_orders_customer_phone ON daily_orders(customer_phone);
+CREATE INDEX IF NOT EXISTS idx_daily_orders_employee_name ON daily_orders(employee_name);
+CREATE INDEX IF NOT EXISTS idx_daily_orders_store ON daily_orders(store);
+CREATE INDEX IF NOT EXISTS idx_daily_orders_client_status ON daily_orders(client_status);
+CREATE INDEX IF NOT EXISTS idx_daily_orders_shipment_status ON daily_orders(shipment_status);
+CREATE INDEX IF NOT EXISTS idx_daily_orders_order_date ON daily_orders(order_date);
+CREATE INDEX IF NOT EXISTS idx_daily_orders_dashboard_filter ON daily_orders(dashboard_filter);
+CREATE INDEX IF NOT EXISTS idx_daily_orders_delivered ON daily_orders(delivered);
 
 -- ============================================================================
 -- TABLE: deliveries (التسليمات)

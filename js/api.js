@@ -8,7 +8,7 @@ class OrdersAPI {
     
     static async getAllOrders(filters = {}) {
         let query = supabase
-            .from('orders')
+            .from('daily_orders')
             .select('*')
             .neq('dashboard_filter', 'Ignore');
 
@@ -38,7 +38,7 @@ class OrdersAPI {
 
     static async getOrderByCode(orderCode) {
         const { data, error } = await supabase
-            .from('orders')
+            .from('daily_orders')
             .select('*')
             .eq('order_code', orderCode)
             .single();
@@ -47,7 +47,7 @@ class OrdersAPI {
 
     static async getEmployeeOrders(employeeName, filters = {}) {
         let query = supabase
-            .from('orders')
+            .from('daily_orders')
             .select('*')
             .eq('employee_name', employeeName)
             .neq('dashboard_filter', 'Ignore');
@@ -62,7 +62,7 @@ class OrdersAPI {
 
     static async getOrdersByStore(store, filters = {}) {
         let query = supabase
-            .from('orders')
+            .from('daily_orders')
             .select('*')
             .eq('store', store)
             .neq('dashboard_filter', 'Ignore');
@@ -79,7 +79,7 @@ class OrdersAPI {
 
     static async createOrder(orderData) {
         const { data, error } = await supabase
-            .from('orders')
+            .from('daily_orders')
             .insert([orderData])
             .select();
         return { data, error };
@@ -87,7 +87,7 @@ class OrdersAPI {
 
     static async updateOrder(orderCode, updates) {
         const { data, error } = await supabase
-            .from('orders')
+            .from('daily_orders')
             .update(updates)
             .eq('order_code', orderCode)
             .select();
@@ -96,7 +96,7 @@ class OrdersAPI {
 
     static async updateOrderStatus(orderCode, status, notes = '') {
         const { data, error } = await supabase
-            .from('orders')
+            .from('daily_orders')
             .update({
                 client_status: status,
                 client_note: notes,
@@ -139,7 +139,7 @@ class OrdersAPI {
 
         const newAttempts = (order.call_attempts || 0) + 1;
         const { data, error } = await supabase
-            .from('orders')
+            .from('daily_orders')
             .update({
                 call_attempts: newAttempts,
                 more_than_5_attempts: newAttempts > 5
@@ -165,7 +165,7 @@ class OrdersAPI {
         }
 
         const { error } = await supabase
-            .from('orders')
+            .from('daily_orders')
             .delete()
             .eq('order_code', orderCode);
         return { error };
@@ -277,40 +277,178 @@ class FollowUpAPI {
 
 class StatisticsAPI {
     static async getEmployeeStats() {
-        const { data, error } = await supabase
-            .from('employee_statistics')
-            .select('*');
-        return { data, error };
+        try {
+            const { data: orders, error } = await supabase
+                .from('daily_orders')
+                .select('employee_name, delivered, dashboard_filter')
+                .neq('dashboard_filter', 'Ignore');
+
+            if (error) throw error;
+            if (!orders) return { data: [], error: null };
+
+            const map = {};
+            orders.forEach(o => {
+                if (!o.employee_name) return;
+                if (!map[o.employee_name]) {
+                    map[o.employee_name] = {
+                        employee_name: o.employee_name,
+                        total_orders: 0,
+                        delivered_count: 0,
+                        not_delivered_count: 0
+                    };
+                }
+                map[o.employee_name].total_orders++;
+                if (o.delivered === 'yes') {
+                    map[o.employee_name].delivered_count++;
+                } else {
+                    map[o.employee_name].not_delivered_count++;
+                }
+            });
+
+            const data = Object.values(map).map(e => ({
+                ...e,
+                delivery_percentage: e.total_orders > 0 ? parseFloat(((e.delivered_count / e.total_orders) * 100).toFixed(2)) : 0
+            })).sort((a, b) => b.delivery_percentage - a.delivery_percentage);
+
+            return { data, error: null };
+        } catch (error) {
+            console.error('getEmployeeStats error:', error);
+            return { data: [], error };
+        }
     }
 
     static async getStoreStats() {
-        const { data, error } = await supabase
-            .from('store_statistics')
-            .select('*');
-        return { data, error };
+        try {
+            const { data: orders, error } = await supabase
+                .from('daily_orders')
+                .select('store, delivered, dashboard_filter')
+                .neq('dashboard_filter', 'Ignore');
+
+            if (error) throw error;
+            if (!orders) return { data: [], error: null };
+
+            const map = {};
+            orders.forEach(o => {
+                if (!o.store) return;
+                if (!map[o.store]) {
+                    map[o.store] = {
+                        store: o.store,
+                        total_orders: 0,
+                        delivered_count: 0,
+                        not_delivered_count: 0
+                    };
+                }
+                map[o.store].total_orders++;
+                if (o.delivered === 'yes') {
+                    map[o.store].delivered_count++;
+                } else {
+                    map[o.store].not_delivered_count++;
+                }
+            });
+
+            const data = Object.values(map).map(s => ({
+                ...s,
+                delivery_percentage: s.total_orders > 0 ? parseFloat(((s.delivered_count / s.total_orders) * 100).toFixed(2)) : 0
+            })).sort((a, b) => b.delivery_percentage - a.delivery_percentage);
+
+            return { data, error: null };
+        } catch (error) {
+            console.error('getStoreStats error:', error);
+            return { data: [], error };
+        }
     }
 
     static async getClientStatusStats() {
-        const { data, error } = await supabase
-            .from('client_status_statistics')
-            .select('*');
-        return { data, error };
+        try {
+            const { data: orders, error } = await supabase
+                .from('daily_orders')
+                .select('client_status, delivered, dashboard_filter')
+                .neq('dashboard_filter', 'Ignore');
+
+            if (error) throw error;
+            if (!orders) return { data: [], error: null };
+
+            const totalAll = orders.length || 1;
+            const map = {};
+            orders.forEach(o => {
+                const status = o.client_status || 'بدون حالة';
+                if (!map[status]) {
+                    map[status] = {
+                        client_status: status,
+                        total_orders: 0,
+                        delivered_count: 0,
+                        not_delivered_count: 0
+                    };
+                }
+                map[status].total_orders++;
+                if (o.delivered === 'yes') {
+                    map[status].delivered_count++;
+                } else {
+                    map[status].not_delivered_count++;
+                }
+            });
+
+            const data = Object.values(map).map(s => ({
+                ...s,
+                delivery_percentage: s.total_orders > 0 ? parseFloat(((s.delivered_count / s.total_orders) * 100).toFixed(2)) : 0,
+                percentage_of_total: parseFloat(((s.total_orders / totalAll) * 100).toFixed(2))
+            })).sort((a, b) => b.total_orders - a.total_orders);
+
+            return { data, error: null };
+        } catch (error) {
+            console.error('getClientStatusStats error:', error);
+            return { data: [], error };
+        }
     }
 
     static async getShipmentStatusStats() {
-        const { data, error } = await supabase
-            .from('shipment_status_statistics')
-            .select('*');
-        return { data, error };
+        try {
+            const { data: orders, error } = await supabase
+                .from('daily_orders')
+                .select('shipment_status, delivered, dashboard_filter')
+                .neq('dashboard_filter', 'Ignore');
+
+            if (error) throw error;
+            if (!orders) return { data: [], error: null };
+
+            const map = {};
+            orders.forEach(o => {
+                const status = o.shipment_status || 'بدون حالة شحن';
+                if (!map[status]) {
+                    map[status] = {
+                        shipment_status: status,
+                        total_orders: 0,
+                        delivered_count: 0,
+                        not_delivered_count: 0
+                    };
+                }
+                map[status].total_orders++;
+                if (o.delivered === 'yes') {
+                    map[status].delivered_count++;
+                } else {
+                    map[status].not_delivered_count++;
+                }
+            });
+
+            const data = Object.values(map).map(s => ({
+                ...s,
+                delivery_percentage: s.total_orders > 0 ? parseFloat(((s.delivered_count / s.total_orders) * 100).toFixed(2)) : 0
+            })).sort((a, b) => b.total_orders - a.total_orders);
+
+            return { data, error: null };
+        } catch (error) {
+            console.error('getShipmentStatusStats error:', error);
+            return { data: [], error };
+        }
     }
 
     static async getDashboardKPIs() {
-        const { data: orders } = await supabase
-            .from('orders')
+        const { data: orders, error } = await supabase
+            .from('daily_orders')
             .select('*')
             .neq('dashboard_filter', 'Ignore');
 
-        if (!orders) return { error: 'Failed to fetch data' };
+        if (error || !orders) return { error: error?.message || 'Failed to fetch data' };
 
         const total = orders.length;
         const delivered = orders.filter(o => o.delivered === 'yes').length;
@@ -324,7 +462,7 @@ class StatisticsAPI {
                 not_delivered_orders: notDelivered,
                 delivery_percentage: percentage,
                 not_delivered_percentage: (100 - percentage).toFixed(2),
-                average_call_attempts: (orders.reduce((sum, o) => sum + (o.call_attempts || 0), 0) / total).toFixed(2)
+                average_call_attempts: total > 0 ? (orders.reduce((sum, o) => sum + (o.call_attempts || 0), 0) / total).toFixed(2) : 0
             }
         };
     }

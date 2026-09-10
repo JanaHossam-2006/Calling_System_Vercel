@@ -3,8 +3,11 @@
  * يتم التحكم في اتصالات قاعدة البيانات من هنا
  */
 
-const SUPABASE_URL = localStorage.getItem('supabase_url') || 'https://your-project.supabase.co';
-const SUPABASE_ANON_KEY = localStorage.getItem('supabase_key') || 'your-anon-key';
+const DEFAULT_SUPABASE_URL = 'https://sylulmlqsqhyujprjups.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_mJHllHfX125IsngquC4YJw_G5oIVUDT';
+
+const SUPABASE_URL = localStorage.getItem('supabase_url') || DEFAULT_SUPABASE_URL;
+const SUPABASE_ANON_KEY = localStorage.getItem('supabase_key') || DEFAULT_SUPABASE_ANON_KEY;
 
 // Initialize Supabase Client
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);

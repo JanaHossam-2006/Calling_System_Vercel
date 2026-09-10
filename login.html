@@ -212,7 +212,7 @@
         async function handleLogin(event) {
             event.preventDefault();
 
-            const email = document.getElementById('email').value;
+            const email = document.getElementById('email').value.trim();
             const password = document.getElementById('password').value;
             const errorMsg = document.getElementById('errorMessage');
             const btnText = document.getElementById('btnText');
@@ -226,27 +226,61 @@
             errorMsg.style.display = 'none';
 
             try {
-                const result = await Auth.login(email, password);
-
-                if (result.success) {
-                    // Redirect based on role
-                    const role = result.user.role;
-                    switch (role) {
-                        case 'admin':
-                            window.location.href = 'admin.html';
-                            break;
-                        case 'employee':
-                        case 'store':
-                            window.location.href = 'index.html';
-                            break;
-                        default:
-                            window.location.href = 'index.html';
-                    }
-                } else {
-                    errorMsg.textContent = result.error || 'فشل تسجيل الدخول';
-                    errorMsg.style.display = 'block';
+                // Ensure client is ready
+                let client = window.supabaseClient;
+                if (!client && window.supabase && typeof window.supabase.createClient === 'function') {
+                    client = window.supabase.createClient('https://sylulmlqsqhyujprjups.supabase.co', 'sb_publishable_mJHllHfX125IsngquC4YJw_G5oIVUDT');
+                    window.supabaseClient = client;
                 }
+
+                if (!client) {
+                    throw new Error('تعذر تحميل مكتبة Supabase. يرجى التأكد من الاتصال بالإنترنت وتحديث الصفحة.');
+                }
+
+                // 1. Sign in with password
+                const { data: authData, error: authError } = await client.auth.signInWithPassword({
+                    email: email,
+                    password: password
+                });
+
+                if (authError) {
+                    if (authError.message.includes('Invalid login credentials')) {
+                        throw new Error('البريد الإلكتروني أو كلمة المرور غير صحيحة');
+                    }
+                    throw authError;
+                }
+
+                // 2. Fetch role from users table
+                let role = 'admin';
+                try {
+                    const { data: userData } = await client
+                        .from('users')
+                        .select('role')
+                        .eq('email', email)
+                        .single();
+
+                    if (userData && userData.role) {
+                        role = userData.role;
+                    }
+                } catch (e) {
+                    console.warn('Could not fetch role from users table, defaulting to admin:', e);
+                }
+
+                // 3. Set Auth state
+                if (window.Auth) {
+                    Auth.currentUser = { email, role };
+                    Auth.currentRole = role;
+                }
+
+                // 4. Redirect
+                if (role === 'employee' || role === 'store') {
+                    window.location.href = 'index.html';
+                } else {
+                    window.location.href = 'admin.html';
+                }
+
             } catch (error) {
+                console.error('Login error:', error);
                 errorMsg.textContent = error.message || 'حدث خطأ أثناء تسجيل الدخول';
                 errorMsg.style.display = 'block';
             } finally {
@@ -258,15 +292,30 @@
 
         // Check if already logged in
         document.addEventListener('DOMContentLoaded', async () => {
-            const isLoggedIn = await Auth.init();
-            if (isLoggedIn) {
-                // Redirect to appropriate dashboard
-                const role = Auth.currentRole;
-                if (role === 'admin') {
-                    window.location.href = 'admin.html';
-                } else {
-                    window.location.href = 'index.html';
+            try {
+                let client = window.supabaseClient;
+                if (!client && window.supabase && typeof window.supabase.createClient === 'function') {
+                    client = window.supabase.createClient('https://sylulmlqsqhyujprjups.supabase.co', 'sb_publishable_mJHllHfX125IsngquC4YJw_G5oIVUDT');
+                    window.supabaseClient = client;
                 }
+                if (client && client.auth) {
+                    const { data: { session } } = await client.auth.getSession();
+                    if (session && session.user) {
+                        const { data: userData } = await client
+                            .from('users')
+                            .select('role')
+                            .eq('email', session.user.email)
+                            .single();
+                        const role = userData?.role || 'admin';
+                        if (role === 'admin') {
+                            window.location.href = 'admin.html';
+                        } else {
+                            window.location.href = 'index.html';
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('Auto auth check failed:', e);
             }
         });
     </script>

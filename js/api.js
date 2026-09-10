@@ -3,6 +3,8 @@
  * جميع عمليات قاعدة البيانات تمر من هنا
  */
 
+var supabase = window.supabaseClient;
+
 class OrdersAPI {
     // ========== READ Operations ==========
     

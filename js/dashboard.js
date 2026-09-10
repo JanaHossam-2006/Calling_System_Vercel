@@ -12,7 +12,8 @@ class Dashboard {
     static async init() {
         try {
             // Check auth
-            if (!Auth.requireAuth()) return;
+            const hasAuth = await Auth.requireAuth();
+            if (!hasAuth) return;
 
             // Set user info in header
             this.updateHeader();

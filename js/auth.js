@@ -118,7 +118,10 @@ class Auth {
         return permissions[action]?.includes(this.currentRole) || false;
     }
 
-    static requireAuth(role = null) {
+    static async requireAuth(role = null) {
+        if (!this.currentUser) {
+            await this.init();
+        }
         if (!this.currentUser) {
             window.location.href = 'login.html';
             return false;
@@ -130,14 +133,3 @@ class Auth {
         return true;
     }
 }
-
-// Initialize auth on page load
-document.addEventListener('DOMContentLoaded', async () => {
-    const isLoggedIn = await Auth.init();
-    if (!isLoggedIn && !window.location.pathname.includes('login')) {
-        // Don't redirect if on login page
-        if (document.body.id !== 'login-page') {
-            // window.location.href = 'login.html';
-        }
-    }
-});

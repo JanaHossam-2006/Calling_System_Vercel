@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نظام الاتصالات - إدارة الطلبات والمتابعات</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes slideUp {
+            from { transform: translateY(30px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .fade-in { animation: fadeIn 1s ease-out; }
+        .slide-up { animation: slideUp 0.8s ease-out; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-blue-100 min-h-screen">
+    <!-- Navigation -->
+    <nav class="bg-white shadow-md sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white text-lg font-bold">
+                    📞
+                </div>
+                <h1 class="text-2xl font-bold text-gray-900">نظام الاتصالات</h1>
+            </div>
+            <a href="/login.html" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition font-medium">
+                تسجيل الدخول
+            </a>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <div class="max-w-7xl mx-auto px-4 py-16 fade-in">
+        <div class="text-center mb-16">
+            <h2 class="text-5xl font-bold text-gray-900 mb-4 slide-up">
+                نظام متكامل لإدارة الطلبات والمتابعات
+            </h2>
+            <p class="text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
+                حل ذكي وسريع لإدارة الطلبات، المتابعات، والإحصائيات بكفاءة عالية
+            </p>
+            <a href="/login.html" class="inline-block bg-blue-600 text-white px-8 py-3 rounded-lg hover:bg-blue-700 transition font-medium text-lg">
+                ابدأ الآن
+            </a>
+        </div>
+
+        <!-- Features Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
+            <!-- Feature 1 -->
+            <div class="bg-white rounded-lg shadow-lg p-8 hover:shadow-xl transition">
+                <div class="text-4xl mb-4">📦</div>
+                <h3 class="text-xl font-bold text-gray-900 mb-3">إدارة الطلبات</h3>
+                <p class="text-gray-600">
+                    نظام متقدم لإنشاء وتتبع وإدارة الطلبات مع تحديثات فورية للحالات
+                </p>
+            </div>
+
+            <!-- Feature 2 -->
+            <div class="bg-white rounded-lg shadow-lg p-8 hover:shadow-xl transition">
+                <div class="text-4xl mb-4">📊</div>
+                <h3 class="text-xl font-bold text-gray-900 mb-3">إحصائيات متقدمة</h3>
+                <p class="text-gray-600">
+                    لوحات بيانات شاملة وتقارير مفصلة لتحليل الأداء والاتجاهات
+                </p>
+            </div>
+
+            <!-- Feature 3 -->
+            <div class="bg-white rounded-lg shadow-lg p-8 hover:shadow-xl transition">
+                <div class="text-4xl mb-4">👥</div>
+                <h3 class="text-xl font-bold text-gray-900 mb-3">إدارة الفريق</h3>
+                <p class="text-gray-600">
+                    نظام متخصص لإدارة الموظفات والمتاجر مع تقييم الأداء
+                </p>
+            </div>
+
+            <!-- Feature 4 -->
+            <div class="bg-white rounded-lg shadow-lg p-8 hover:shadow-xl transition">
+                <div class="text-4xl mb-4">🔍</div>
+                <h3 class="text-xl font-bold text-gray-900 mb-3">بحث متقدم</h3>
+                <p class="text-gray-600">
+                    أدوات بحث قوية مع فلاتر متعددة للعثور على البيانات بسرعة
+                </p>
+            </div>
+
+            <!-- Feature 5 -->
+            <div class="bg-white rounded-lg shadow-lg p-8 hover:shadow-xl transition">
+                <div class="text-4xl mb-4">📞</div>
+                <h3 class="text-xl font-bold text-gray-900 mb-3">المتابعات</h3>
+                <p class="text-gray-600">
+                    نظام جدولة متابعات ذكي مع تنبيهات وتذكيرات فورية
+                </p>
+            </div>
+
+            <!-- Feature 6 -->
+            <div class="bg-white rounded-lg shadow-lg p-8 hover:shadow-xl transition">
+                <div class="text-4xl mb-4">⚡</div>
+                <h3 class="text-xl font-bold text-gray-900 mb-3">سرعة وأداء</h3>
+                <p class="text-gray-600">
+                    أداء ممتاز وسرعة عالية مع واجهة سلسة وسهلة الاستخدام
+                </p>
+            </div>
+        </div>
+
+        <!-- Stats Section -->
+        <div class="bg-white rounded-lg shadow-lg p-12 mb-16">
+            <h3 class="text-3xl font-bold text-gray-900 text-center mb-8">إحصائيات النظام</h3>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-8 text-center">
+                <div>
+                    <div class="text-4xl font-bold text-blue-600 mb-2">66</div>
+                    <p class="text-gray-600">دالة API</p>
+                </div>
+                <div>
+                    <div class="text-4xl font-bold text-blue-600 mb-2">12+</div>
+                    <p class="text-gray-600">صفحة</p>
+                </div>
+                <div>
+                    <div class="text-4xl font-bold text-blue-600 mb-2">3</div>
+                    <p class="text-gray-600">لوحات تحكم</p>
+                </div>
+                <div>
+                    <div class="text-4xl font-bold text-blue-600 mb-2">100%</div>
+                    <p class="text-gray-600">متوافقة</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- CTA Section -->
+        <div class="bg-gradient-to-r from-blue-600 to-blue-800 rounded-lg shadow-lg p-12 text-white text-center mb-16">
+            <h3 class="text-3xl font-bold mb-4">جاهز للبدء؟</h3>
+            <p class="text-lg mb-8">انضم إلى آلاف المستخدمين الذين يستخدمون نظام الاتصالات</p>
+            <a href="/login.html" class="inline-block bg-white text-blue-600 px-8 py-3 rounded-lg hover:bg-gray-100 transition font-bold text-lg">
+                تسجيل الدخول الآن
+            </a>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-gray-900 text-white py-12">
+        <div class="max-w-7xl mx-auto px-4 text-center">
+            <div class="mb-6">
+                <div class="flex items-center justify-center gap-3 mb-4">
+                    <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
+                        📞
+                    </div>
+                    <span class="text-xl font-bold">نظام الاتصالات</span>
+                </div>
+                <p class="text-gray-400">نظام متكامل لإدارة الطلبات والمتابعات</p>
+            </div>
+            <div class="border-t border-gray-800 pt-6 mt-6 text-gray-400">
+                <p>&copy; 2026 جميع الحقوق محفوظة. صُنع بـ ❤️</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Check if user is logged in
+        window.addEventListener('load', () => {
+            const token = localStorage.getItem('token');
+            if (token) {
+                const user = JSON.parse(localStorage.getItem('user') || '{}');
+                if (user.role === 'admin') {
+                    window.location.href = '/dashboard/admin';
+                }
+            }
+        });
+    </script>
+</body>
+</html>

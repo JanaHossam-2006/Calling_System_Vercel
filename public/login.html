@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نظام الاتصالات - تسجيل الدخول</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-in { animation: fadeIn 0.5s ease-out; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-600 to-blue-800 min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-md w-full fade-in">
+        <!-- Header -->
+        <div class="bg-gradient-to-r from-blue-600 to-blue-800 p-8 text-white rounded-t-lg">
+            <div class="flex items-center justify-center gap-3 mb-2">
+                <div class="w-12 h-12 bg-white bg-opacity-20 rounded-full flex items-center justify-center text-2xl">
+                    📞
+                </div>
+                <h1 class="text-2xl font-bold">نظام الاتصالات</h1>
+            </div>
+            <p class="text-blue-100 text-center text-sm">إدارة الطلبات والمتابعات</p>
+        </div>
+
+        <!-- Form -->
+        <div class="p-8">
+            <form id="loginForm" onsubmit="handleLogin(event)">
+                <!-- Email -->
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        البريد الإلكتروني
+                    </label>
+                    <input 
+                        type="email" 
+                        id="email"
+                        required
+                        placeholder="example@company.com"
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                    />
+                </div>
+
+                <!-- Password -->
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        كلمة المرور
+                    </label>
+                    <input 
+                        type="password" 
+                        id="password"
+                        required
+                        placeholder="••••••••"
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                    />
+                </div>
+
+                <!-- Error Message -->
+                <div id="error" class="hidden mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
+                </div>
+
+                <!-- Submit Button -->
+                <button 
+                    type="submit"
+                    id="submitBtn"
+                    class="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition font-medium"
+                >
+                    تسجيل الدخول
+                </button>
+            </form>
+
+            <!-- Links -->
+            <div class="mt-4 space-y-2 text-center text-sm">
+                <a href="#" class="block text-blue-600 hover:text-blue-700 transition">
+                    هل نسيت كلمة المرور؟
+                </a>
+            </div>
+        </div>
+
+        <!-- Demo Credentials -->
+        <div class="bg-gray-50 p-4 rounded-b-lg border-t text-xs text-gray-600">
+            <p class="font-medium mb-2">بيانات تجريبية:</p>
+            <p>البريد: admin@test.com</p>
+            <p>كلمة المرور: password</p>
+        </div>
+    </div>
+
+    <script>
+        async function handleLogin(event) {
+            event.preventDefault();
+            
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const submitBtn = document.getElementById('submitBtn');
+            const errorDiv = document.getElementById('error');
+            
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'جاري المعالجة...';
+            errorDiv.classList.add('hidden');
+
+            try {
+                // محاولة الاتصال بـ API الدخول
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    // تخزين البيانات
+                    localStorage.setItem('user', JSON.stringify(data));
+                    localStorage.setItem('token', data.token);
+                    
+                    // إعادة التوجيه حسب الدور
+                    if (data.role === 'admin') {
+                        window.location.href = '/dashboard/admin';
+                    } else if (data.role === 'employee') {
+                        window.location.href = '/dashboard/employee';
+                    } else if (data.role === 'store') {
+                        window.location.href = '/dashboard/store';
+                    } else {
+                        window.location.href = '/dashboard';
+                    }
+                } else {
+                    const error = await response.json();
+                    showError(error.message || 'فشل تسجيل الدخول');
+                }
+            } catch (error) {
+                console.error('خطأ:', error);
+                showError('خطأ في الاتصال بالخادم');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'تسجيل الدخول';
+            }
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+        }
+
+        // للاختبار: إذا كان المستخدم مسجل دخول بالفعل، انقله للداشبورد
+        window.addEventListener('load', () => {
+            const token = localStorage.getItem('token');
+            if (token) {
+                const user = JSON.parse(localStorage.getItem('user') || '{}');
+                if (user.role === 'admin') {
+                    window.location.href = '/dashboard/admin';
+                }
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,45 +1,8 @@
 {
-  "name": "calling-system-vercel",
+  "name": "calling-system",
   "version": "1.0.0",
-  "description": "نظام إدارة الطلبات والمتابعة - Vercel + Supabase",
+  "description": "نظام إدارة الطلبات والمتابعة",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "test:services": "node -r ts-node/register src/__tests__/services.test.ts",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
-    "test:unit": "jest src/**/__tests__/**/*.test.ts",
-    "test:integration": "jest src/__tests__/integration.test.ts"
-  },
-  "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "next": "^14.0.0",
-    "@supabase/supabase-js": "^2.38.0",
-    "zustand": "^4.4.0",
-    "axios": "^1.6.0",
-    "chart.js": "^4.4.0",
-    "react-chartjs-2": "^5.2.0",
-    "react-hot-toast": "^2.4.0",
-    "lucide-react": "^0.263.0",
-    "typescript": "^5.3.0"
-  },
-  "devDependencies": {
-    "@types/react": "^18.2.0",
-    "@types/node": "^20.0.0",
-    "@testing-library/react": "^14.0.0",
-    "@testing-library/jest-dom": "^6.1.0",
-    "@testing-library/user-event": "^14.5.0",
-    "jest": "^29.7.0",
-    "jest-environment-jsdom": "^29.7.0",
-    "@types/jest": "^29.5.0",
-    "autoprefixer": "^10.4.0",
-    "postcss": "^8.4.0",
-    "tailwindcss": "^3.3.0",
-    "eslint": "^8.53.0",
-    "eslint-config-next": "^14.0.0"
+    "start": "echo 'Ready to serve static files'"
   }
 }

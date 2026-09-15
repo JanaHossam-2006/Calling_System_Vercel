@@ -1,0 +1,3101 @@
+<script>
+// --- حالة التطبيق ---
+window.state = {
+    currentUser: null,
+    orders: [], // البيانات من الشيت
+    currentOrder: null,
+    lastAdminDashboardData: null,
+    currentStoreTab: 'normal',
+    currentEmployeeTab: 'all' // all, no_status, pending_shipment
+};
+
+// خيارات القوائم المنسدلة
+const clientStatuses = [
+    "رد و يستلم", "اجل الاستلام", "الغى الطلب", "لم يرد", "استبدال", "استلم"
+];
+
+const shipmentStatuses = [
+    "تم التسليم", "تم تبليغ المندوب", "الغى الطلب", "الغى الطلب مرتجع (مش نفس الطلب او المقاس)", 
+    "المندوب لا يرد او معلق", "مشكله مع المندوب", "لا يوجد رقم مندوب", "لم يرد العميل", "اجل التسليم"
+];
+
+// --- عناصر الـ DOM ---
+const screens = {
+    login: document.getElementById('login-screen'),
+    dashboard: document.getElementById('dashboard-screen'),
+    admin: document.getElementById('admin-screen')
+};
+
+const elements = {
+    loginForm: document.getElementById('login-form'),
+    usernameInput: document.getElementById('username'),
+    passwordInput: document.getElementById('password'),
+    currentUserName: document.getElementById('current-user-name'),
+    logoutBtn: document.getElementById('logout-btn'),
+    kpiContainer: document.getElementById('kpi-container'),
+    ordersContainer: document.getElementById('orders-container'),
+    
+    // النافذة السفلية (Bottom Sheet)
+    bottomSheet: document.getElementById('bottom-sheet'),
+    sheetOverlay: document.getElementById('sheet-overlay'),
+    closeSheetBtn: document.getElementById('close-sheet-btn'),
+    sheetOrderCode: document.getElementById('sheet-order-code'),
+    sheetBody: document.getElementById('sheet-body'),
+    
+    // إضافات جديدة
+    searchInput: document.getElementById('search-code-input'),
+    clockEl: document.getElementById('realtime-clock'),
+    
+    // قائمة إحصائيات الموظفة
+    employeeStatsBtn: document.getElementById('employee-stats-btn'),
+    employeeStatsSheet: document.getElementById('employee-stats-sheet'),
+    statsOverlay: document.getElementById('stats-overlay'),
+    closeStatsBtn: document.getElementById('close-stats-btn'),
+    statsContent: document.getElementById('stats-content')
+};
+
+// --- دوال مساعدة ---
+const updateClock = () => {
+    const now = new Date();
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const libyaTime = new Date(utc + (2 * 3600000));
+    
+    let hours = libyaTime.getHours();
+    const minutes = libyaTime.getMinutes().toString().padStart(2, '0');
+    const ampm = hours >= 12 ? 'م' : 'ص';
+    
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    
+    const timeStr = `${hours}:${minutes} ${ampm}`;
+    
+    // تحديث ساعة الموظف
+    if (elements.clockEl) elements.clockEl.textContent = timeStr;
+    
+    // تحديث ساعة المدير
+    const adminClock = document.getElementById('admin-realtime-clock');
+    if (adminClock) adminClock.textContent = timeStr;
+};
+setInterval(updateClock, 1000);
+updateClock();
+
+const getCurrentLibyaTime = () => {
+    const now = new Date();
+    // الحصول على توقيت جرينتش (UTC) بالمللي ثانية
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    // توقيت ليبيا هو جرينتش + ساعتين دائماً (UTC+2)
+    const libyaTime = new Date(utc + (2 * 3600000));
+    
+    const pad = (n) => n.toString().padStart(2, '0');
+    
+    const day = pad(libyaTime.getDate());
+    const month = pad(libyaTime.getMonth() + 1);
+    const year = libyaTime.getFullYear();
+    
+    const hours = pad(libyaTime.getHours());
+    const minutes = pad(libyaTime.getMinutes());
+    const seconds = pad(libyaTime.getSeconds());
+    
+    return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
+};
+
+// تحويل نص التاريخ (DD/MM/YYYY HH:mm:ss) إلى كائن Date للمقارنة
+const parseLibyaDate = (dateStr) => {
+    if (!dateStr || typeof dateStr !== 'string' || !dateStr.includes('/')) return new Date(0);
+    try {
+        const [datePart, timePart] = dateStr.split(' ');
+        const [day, month, year] = datePart.split('/');
+        const [h, m, s] = timePart ? timePart.split(':') : [0, 0, 0];
+        return new Date(year, month - 1, day, h, m, s);
+    } catch (e) {
+        return new Date(0);
+    }
+};
+
+// دالة النسخ العامة (متوافقة مع Apps Script والـ iframes)
+window.copyText = (text, event) => {
+    if (event) event.stopPropagation();
+    if (!text || text === 'غير متاح' || text === '-' || text === 'بدون كود') return;
+    
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.left = "-999999px";
+    textArea.style.top = "-999999px";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    
+    try {
+        document.execCommand('copy');
+        // إظهار تنبيه نجاح النسخ
+        const msg = document.getElementById('save-status-msg');
+        if (msg) {
+            msg.innerHTML = '<div style="background:var(--accent-emerald);color:white;padding:10px 20px;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,0.2);"><i class="ri-checkbox-circle-line"></i> تم النسخ بنجاح</div>';
+            setTimeout(() => msg.innerHTML = '', 2000);
+        }
+        
+        // تغيير الأيقونة مؤقتاً إذا وجدت
+        if (event && event.currentTarget) {
+            const el = event.currentTarget.querySelector('i') || event.currentTarget;
+            if (el && el.className) {
+                const oldClass = el.className;
+                el.className = 'ri-check-line';
+                setTimeout(() => el.className = oldClass, 1500);
+            }
+        }
+    } catch (err) {
+        console.error('Copy failed', err);
+    }
+    document.body.removeChild(textArea);
+};
+
+// نسخ بيانات الطلب بالكامل
+window.copyFullOrderDetails = (orderId, event, isAdmin = false) => {
+    if (event) event.stopPropagation();
+    
+    let order;
+    if (isAdmin) {
+        order = (state.lastAdminSearchResults && state.lastAdminSearchResults.find(o => o.id === orderId)) || 
+                (state.lastAdminDashboardData && state.lastAdminDashboardData.allOrders && state.lastAdminDashboardData.allOrders.find(o => o.id === orderId));
+    } else {
+        order = state.orders.find(o => o.id === orderId);
+    }
+    
+    if (!order) return;
+    
+    const text = `
+تفاصيل الطلب:
+--------------------
+- الموظفة: ${order['الاسم'] || '-'}
+- الكود: ${order['كود الطلب'] || '-'}
+- العميل: ${order['رقم العميل'] || '-'}
+- المنتج: ${order['اسم المنتج'] || '-'}
+- السعر: ${order['السعر'] || '-'}
+- المتجر: ${order['المتجر'] || '-'}
+- المندوب: ${order['رقم المندوب'] || '-'}
+- حالة العميل: ${order['الحالة - العميل'] || 'لم تحدد'}
+- حالة الشحنة: ${order['الحالة - الشحنه'] || 'لم تحدد'}
+- تبليغ المسؤول: ${order['تبليغ المسؤول'] || '-'}
+- ملاحظة المسؤول: ${order['ملاحظة مسؤول المتجر'] || order['ملاحظه المسؤول'] || '-'}
+- ملاحظة المدير: ${order['ملاحظة'] || '-'}
+- ملاحظة الموظفة (عميل): ${order['ملاحظة - العميل'] || '-'}
+- ملاحظة الموظفة (مندوب): ${order['ملاحظة - المندوب'] || '-'}
+--------------------
+تحديث: ${order['التاريخ'] || '-'}
+    `.trim();
+    
+    copyText(text);
+};
+
+const formatDate = (dateString) => {
+    if (!dateString) return 'غير متاح';
+    if (typeof dateString === 'string' && dateString.includes('/')) return dateString;
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return dateString; 
+    return getCurrentLibyaTime();
+};
+
+const getStatusColor = (status) => {
+    if (!status) return 'default';
+    const s = status.toLowerCase();
+    if (s.includes('استلم') || s.includes('تم التسليم')) return 'emerald';
+    if (s.includes('لم يرد') || s.includes('اجل')) return 'amber';
+    if (s.includes('الغى') || s.includes('مشكله')) return 'rose';
+    if (s.includes('رد و يستلم') || s.includes('تبليغ')) return 'indigo';
+    return 'default';
+};
+
+const getNoteClass = (note) => {
+    if (!note) return '';
+    const n = note.toLowerCase();
+    if (n.includes('t2')) return 'note-t2';
+    if (n.includes('مرتجع')) return 'note-returned';
+    if (n.includes('مؤجل')) return 'note-postponed';
+    return 'note-other';
+};
+
+const showScreen = (screenName) => {
+    Object.values(screens).forEach(s => s.classList.remove('active'));
+    if (screens[screenName]) screens[screenName].classList.add('active');
+};
+
+// --- دوال المنطق والاتصال بالخادم ---
+
+// 1. المصادقة وتنزيل الدخول
+elements.loginForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const username = elements.usernameInput.value.trim();
+    const password = elements.passwordInput.value.trim();
+    const loginBtn = elements.loginForm.querySelector('button');
+
+    if (username && password) {
+        loginBtn.textContent = 'جاري التحقق...';
+        loginBtn.disabled = true;
+
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+            google.script.run
+                .withSuccessHandler(function(auth) {
+                    if (auth && auth.role) {
+                        const role = auth.role;
+                        state.currentUser = username;
+                        state.userRole = role;
+                        state.availableStores = auth.availableStores || [];
+                        state.currentStore = state.availableStores.length > 0 ? state.availableStores[0] : username;
+
+                        if (role === 'admin') {
+                            state.isAdmin = true;
+                            loginBtn.textContent = 'تسجيل الدخول';
+                            loginBtn.disabled = false;
+                            showScreen('admin');
+                            loadAdminDashboard();
+                        } else if (role === 'employee' || role === 'store') {
+                            elements.currentUserName.textContent = (role === 'store' ? 'مسؤول: ' : '') + username;
+                            loginBtn.textContent = 'جاري التحميل...';
+                            
+                            if (role === 'store') {
+                                renderStoreSelector();
+                            }
+
+                            google.script.run
+                                .withSuccessHandler(function(data) {
+                                    // فلترة التكرار من البيانات القادمة من الشيت
+                                    const seenRows = new Set();
+                                    state.orders = (data || []).filter(o => {
+                                        const key = o._rowIndex || o.id;
+                                        if (seenRows.has(key)) return false;
+                                        seenRows.add(key);
+                                        return true;
+                                    });
+                                    
+                                    if (role === 'store') {
+                                        google.script.run.withSuccessHandler(function(followUps) {
+                                            state.followUpOrders = followUps || [];
+                                            renderDashboard();
+                                            showScreen('dashboard');
+                                            loginBtn.textContent = 'تسجيل الدخول';
+                                            loginBtn.disabled = false;
+                                        }).getStoreFollowUpOrders(state.currentStore);
+                                    } else {
+                                        renderDashboard();
+                                        showScreen('dashboard');
+                                        loginBtn.textContent = 'تسجيل الدخول';
+                                        loginBtn.disabled = false;
+                                    }
+                                })
+                                .withFailureHandler(function(error) {
+                                    alert('حدث خطأ أثناء جلب الطلبات: ' + error.message);
+                                    loginBtn.textContent = 'تسجيل الدخول';
+                                    loginBtn.disabled = false;
+                                })
+                                .getOrdersData(state.currentStore || username, role);
+                        }
+                    } else {
+                        alert('اسم المستخدم أو كلمة المرور غير صحيحة.');
+                        loginBtn.textContent = 'تسجيل الدخول';
+                        loginBtn.disabled = false;
+                    }
+                })
+                .withFailureHandler(function(error) {
+                    alert('خطأ في الاتصال بالخادم: ' + error.message);
+                    loginBtn.textContent = 'تسجيل الدخول';
+                    loginBtn.disabled = false;
+                })
+                .authenticateUser(username, password);
+        } else {
+            alert('يجب تشغيل التطبيق داخل بيئة Google Apps Script.');
+            loginBtn.textContent = 'تسجيل الدخول';
+            loginBtn.disabled = false;
+        }
+    }
+});
+
+elements.logoutBtn.addEventListener('click', () => {
+    state.currentUser = null;
+    state.isAdmin = false;
+    state.userRole = null;
+    state.availableStores = [];
+    state.currentStore = null;
+    state.orders = [];
+    elements.usernameInput.value = '';
+    elements.passwordInput.value = '';
+    showScreen('login');
+});
+
+// --- إحصائيات الموظفة ---
+window.showEmployeeStats = () => {
+    const statsContent = document.getElementById('stats-content');
+    statsContent.innerHTML = `
+        <div class="stats-loading">
+            <div class="spinner"></div>
+            <p>جاري تحميل الإحصائيات...</p>
+        </div>
+    `;
+    
+    elements.employeeStatsSheet.classList.add('active');
+    
+    google.script.run
+        .withSuccessHandler(function(stats) {
+            if (stats.error) {
+                renderEmployeeStatsError(stats.error);
+            } else {
+                renderEmployeeStats(stats);
+            }
+        })
+        .withFailureHandler(function(error) {
+            renderEmployeeStatsError('خطأ في الاتصال: ' + error.message);
+        })
+        .getEmployeeStatistics(state.currentUser);
+};
+
+window.closeEmployeeStats = () => {
+    elements.employeeStatsSheet.classList.remove('active');
+};
+
+window.renderEmployeeStatsError = (errorMessage) => {
+    const html = `
+        <div class="stats-error">
+            <i class="ri-error-warning-line" style="font-size: 3rem; color: var(--accent-rose); display: block; margin-bottom: 15px;"></i>
+            <h4 style="color: var(--accent-rose); margin-bottom: 10px;">حدث خطأ</h4>
+            <p style="color: var(--text-secondary);">${errorMessage}</p>
+            <button onclick="showEmployeeStats()" style="background: var(--accent-indigo); color: white; border: none; padding: 10px 20px; border-radius: 10px; font-family: inherit; font-weight: 700; cursor: pointer; margin-top: 15px;">
+                إعادة المحاولة
+            </button>
+        </div>
+    `;
+    document.getElementById('stats-content').innerHTML = html;
+};
+
+window.renderEmployeeStats = (stats) => {
+    // تحديد فئة الأداء بناءً على النسبة العامة فقط - نفس Mini Dash
+    const deliveryRateClass = getDeliveryRateClass(stats.overallRate);
+    const performanceLevel = getPerformanceClass(stats.overallRate);
+    
+    // تحديد الأداء للشهر الحالي
+    const monthlyPerformanceLevel = getPerformanceClass(stats.currentMonthRate);
+    
+    // تحديد الأيقونة والنص بناءً على المستوى (5 مستويات)
+    let performanceIcon, performanceText, performanceMessage;
+    
+    switch(performanceLevel) {
+        case 'excellent':
+            performanceIcon = 'ri-award-fill';
+            performanceText = 'مستوى ممتاز';
+            performanceMessage = 'أداء استثنائي، استمري على هذا التميز!';
+            break;
+        case 'high':
+            performanceIcon = 'ri-emotion-happy-line';
+            performanceText = 'مستوى جيد';
+            performanceMessage = 'أداء جيد، هناك مجال للتحسين للوصول للتميز.';
+            break;
+        case 'medium':
+            performanceIcon = 'ri-emotion-normal-line';
+            performanceText = 'مستوى متوسط';
+            performanceMessage = 'أداء متوسط، ركزي على زيادة نسبة التسليمات.';
+            break;
+        case 'low':
+            performanceIcon = 'ri-emotion-sad-line';
+            performanceText = 'مستوى ضعيف';
+            performanceMessage = 'أداء ضعيف، تحتاجين لتحسين نسبة التسليمات.';
+            break;
+        case 'critical':
+            performanceIcon = 'ri-emotion-unhappy-line';
+            performanceText = 'مستوى حرج';
+            performanceMessage = 'أداء حرج، ركزي على زيادة النسبة فوراً.';
+            break;
+        default:
+            performanceIcon = 'ri-emotion-normal-line';
+            performanceText = 'مستوى متوسط';
+            performanceMessage = 'هناك مجال للتحسين';
+    }
+    
+    // تحديد الأيقونة والنص للشهر الحالي
+    let monthlyIcon, monthlyText, monthlyMessage;
+    
+    switch(monthlyPerformanceLevel) {
+        case 'excellent':
+            monthlyIcon = 'ri-award-fill';
+            monthlyText = 'مستوى ممتاز';
+            monthlyMessage = 'أداء رائع هذا الشهر، استمري!';
+            break;
+        case 'high':
+            monthlyIcon = 'ri-emotion-happy-line';
+            monthlyText = 'مستوى جيد';
+            monthlyMessage = 'أداء جيد هذا الشهر، يمكنك التحسن أكثر.';
+            break;
+        case 'medium':
+            monthlyIcon = 'ri-emotion-normal-line';
+            monthlyText = 'مستوى متوسط';
+            monthlyMessage = 'الأداء متوسط، ركزي على التحسن.';
+            break;
+        case 'low':
+            monthlyIcon = 'ri-emotion-sad-line';
+            monthlyText = 'مستوى ضعيف';
+            monthlyMessage = 'الأداء ضعيف هذا الشهر، حاولي التحسن.';
+            break;
+        case 'critical':
+            monthlyIcon = 'ri-emotion-unhappy-line';
+            monthlyText = 'مستوى حرج';
+            monthlyMessage = 'أداء حرج هذا الشهر، ركزي على التحسين الفوري.';
+            break;
+        default:
+            monthlyIcon = 'ri-emotion-normal-line';
+            monthlyText = 'مستوى متوسط';
+            monthlyMessage = 'هناك مجال للتحسين';
+    }
+    
+    const html = `
+        <div class="stats-container">
+            <!-- النسب العامة -->
+            <div class="stat-card highlight">
+                <div class="stat-title">
+                    <i class="ri-award-line"></i>
+                    نسبة التسليمات العامة
+                </div>
+                <div class="stat-value ${deliveryRateClass}">
+                    ${stats.overallRate}%
+                </div>
+                <div class="stat-subtitle">
+                    إجمالي التسليمات: ${stats.deliveredAll || 0} من ${stats.totalAll || 0}
+                </div>
+            </div>
+            
+            <!-- الشهر الحالي -->
+            <div class="stat-card">
+                <div class="stat-title">
+                    <i class="ri-calendar-line"></i>
+                    الشهر الحالي
+                </div>
+                <div class="stat-value ${stats.currentMonthRate > 0 ? getDeliveryRateClass(stats.currentMonthRate) : ''}">
+                    ${stats.currentMonthRate || 0}%
+                </div>
+                <div class="stat-subtitle">
+                    الترتيب: ${stats.currentMonthRank > 0 ? stats.currentMonthRank : '-'}/${stats.totalEmployees > 0 ? stats.totalEmployees : '-'}
+                    <br>
+                    التسليمات: ${stats.deliveredMonth || 0} من ${stats.totalMonth || 0}
+                </div>
+            </div>
+            
+            <!-- الترتيب العام -->
+            <div class="stat-card">
+                <div class="stat-title">
+                    <i class="ri-trophy-line"></i>
+                    الترتيب العام
+                </div>
+                <div class="stat-value">
+                    المركز ${stats.overallRank || '-'}
+                </div>
+                <div class="stat-subtitle">
+                    من إجمالي ${stats.totalEmployees || '-'} موظفة
+                </div>
+            </div>
+            
+            <!-- مستوى الأداء العام -->
+            <div class="performance-card ${performanceLevel}">
+                <div class="performance-icon">
+                    <i class="${performanceIcon}"></i>
+                </div>
+                <div class="performance-text">
+                    <strong>${performanceText} (العام)</strong>
+                    <small>${performanceMessage}</small>
+                </div>
+            </div>
+            
+            <!-- مستوى الأداء للشهر الحالي -->
+            <div class="performance-card ${monthlyPerformanceLevel}">
+                <div class="performance-icon">
+                    <i class="${monthlyIcon}"></i>
+                </div>
+                <div class="performance-text">
+                    <strong>${monthlyText} (الشهر الحالي)</strong>
+                    <small>${monthlyMessage}</small>
+                </div>
+            </div>
+            
+            <!-- ملاحظة -->
+            <div class="note-card">
+                <i class="ri-information-line"></i>
+                <span>نفس الأرقام المعروضة في <strong>Mini Dash</strong></span>
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('stats-content').innerHTML = html;
+};
+
+// دالة لتحديد فئة الأداء (لون) - بناءً على النطاق الواقعي للتسليمات
+window.getDeliveryRateClass = (rate) => {
+    const n = parseFloat(rate);
+    if (n >= 26) return 'delivery-rate-excellent';  // ممتاز  ≥ 26%
+    if (n >= 21) return 'delivery-rate-high';        // جيد    ≥ 21%
+    if (n >= 18) return 'delivery-rate-medium';      // متوسط  ≥ 18%
+    if (n >= 15) return 'delivery-rate-low';         // ضعيف   ≥ 15%
+    return 'delivery-rate-critical';                 // حرج    < 15%
+};
+
+// دالة مساعدة لتحديد فئة الأداء (لون) بناءً على النسب
+window.getPerformanceClass = (rate) => {
+    const deliveryClass = getDeliveryRateClass(rate);
+    
+    // تحويل delivery-rate-class إلى performance-level
+    if (deliveryClass === 'delivery-rate-excellent') return 'excellent';
+    if (deliveryClass === 'delivery-rate-high') return 'high';
+    if (deliveryClass === 'delivery-rate-medium') return 'medium';
+    if (deliveryClass === 'delivery-rate-low') return 'low';
+    return 'critical';
+};
+
+// إضافة event listener لزر إحصائيات الموظفة
+if (elements.employeeStatsBtn) {
+    elements.employeeStatsBtn.addEventListener('click', showEmployeeStats);
+}
+
+// إضافة event listener لإغلاق إحصائيات الموظفة
+if (elements.closeStatsBtn) {
+    elements.closeStatsBtn.addEventListener('click', closeEmployeeStats);
+}
+
+// إضافة event listener للضغط على الخلفية (overlay) لإغلاق الـ sidebar
+if (elements.statsOverlay) {
+    elements.statsOverlay.addEventListener('click', closeEmployeeStats);
+}
+
+// دالة جلب البيانات للموظف أو المتجر
+const loadOrders = () => {
+    if (!state.currentUser || !state.userRole) return;
+    
+    const refreshBtn = document.getElementById('refresh-btn');
+    const icon = refreshBtn ? refreshBtn.querySelector('i') : null;
+    if (icon) icon.classList.add('ri-spin');
+    
+    const targetId = state.userRole === 'store' ? state.currentStore : state.currentUser;
+    
+    google.script.run
+        .withSuccessHandler(function(data) {
+            // فلترة التكرار من البيانات القادمة من الشيت
+            const seenRows = new Set();
+            state.orders = (data || []).filter(o => {
+                const key = o._rowIndex || o.id;
+                if (seenRows.has(key)) return false;
+                seenRows.add(key);
+                return true;
+            });
+            
+            if (state.userRole === 'store') {
+                google.script.run.withSuccessHandler(function(followUps) {
+                    state.followUpOrders = followUps || [];
+                    renderDashboard();
+                    if (icon) icon.classList.remove('ri-spin');
+                }).getStoreFollowUpOrders(targetId);
+            } else {
+                renderDashboard();
+                if (icon) icon.classList.remove('ri-spin');
+            }
+        })
+        .withFailureHandler(function(error) {
+            alert('حدث خطأ أثناء جلب البيانات: ' + error.message);
+            if (icon) icon.classList.remove('ri-spin');
+        })
+        .getOrdersData(targetId, state.userRole);
+};
+
+const renderStoreSelector = () => {
+    const titleContainer = document.querySelector('.nav-right h2');
+    if (!titleContainer || state.userRole !== 'store') return;
+
+    if (state.availableStores.length <= 1) {
+        titleContainer.textContent = state.currentStore || 'الرئيسية';
+        return;
+    }
+
+    let selectHTML = `
+        <div class="store-selector-wrapper" style="position:relative; display:inline-block;">
+            <select onchange="switchStore(this.value)" style="background:var(--accent-indigo-light); color:var(--accent-indigo); border:1px solid rgba(99,102,241,0.2); padding:6px 28px 6px 12px; border-radius:10px; font-family:inherit; font-size:0.9rem; font-weight:700; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none;">
+                ${state.availableStores.map(s => `<option value="${s}" ${s === state.currentStore ? 'selected' : ''}>${s}</option>`).join('')}
+            </select>
+            <i class="ri-arrow-down-s-line" style="position:absolute; left:8px; top:50%; transform:translateY(-50%); pointer-events:none; color:var(--accent-indigo);"></i>
+        </div>
+    `;
+    titleContainer.parentElement.innerHTML = `<button class="icon-btn"><i class="ri-menu-2-line"></i></button>${selectHTML}`;
+};
+
+window.switchStore = (storeName) => {
+    state.currentStore = storeName;
+    loadOrders();
+};
+
+// زر تحديث الموظف
+const refreshBtn = document.getElementById('refresh-btn');
+if (refreshBtn) {
+    refreshBtn.addEventListener('click', loadOrders);
+}
+
+// زر تسجيل الخروج للأدمن
+document.getElementById('admin-logout-btn').addEventListener('click', () => {
+    state.currentUser = null;
+    state.isAdmin = false;
+    state.userRole = null;
+    state.availableStores = [];
+    state.currentStore = null;
+    state.orders = [];
+    elements.usernameInput.value = '';
+    elements.passwordInput.value = '';
+    showScreen('login');
+});
+
+// ===========================================
+// دوال إحصائيات الموظفة الجديدة
+// ===========================================
+
+// فتح وإغلاق قائمة الإحصائيات
+if (elements.employeeStatsBtn) {
+    elements.employeeStatsBtn.addEventListener('click', showEmployeeStats);
+}
+
+if (elements.closeStatsBtn) {
+    elements.closeStatsBtn.addEventListener('click', closeEmployeeStats);
+}
+
+if (elements.statsOverlay) {
+    elements.statsOverlay.addEventListener('click', closeEmployeeStats);
+}
+
+// دالة فتح قائمة الإحصائيات
+function showEmployeeStats() {
+    if (!state.currentUser) {
+        alert('يجب تسجيل الدخول أولاً');
+        return;
+    }
+    
+    // إظهار القائمة الجانبية فقط (بدون overlay)
+    elements.employeeStatsSheet.classList.add('active');
+    
+    // عرض حالة التحميل
+    elements.statsContent.innerHTML = `
+        <div class="stats-loading">
+            <div class="spinner"></div>
+            <p>جاري تحميل الإحصائيات...</p>
+        </div>
+    `;
+    
+    // طلب الإحصائيات من Google Apps Script
+    google.script.run
+        .withSuccessHandler(function(stats) {
+            if (stats.error) {
+                renderEmployeeStatsError(stats.error);
+            } else {
+                renderEmployeeStats(stats);
+            }
+        })
+        .withFailureHandler(function(error) {
+            renderEmployeeStatsError('خطأ في الاتصال: ' + error.message);
+        })
+        .getEmployeeStatistics(state.currentUser);
+}
+
+// دالة إغلاق قائمة الإحصائيات
+function closeEmployeeStats() {
+    elements.employeeStatsSheet.classList.remove('active');
+}
+
+// دالة عرض خطأ في الإحصائيات
+function renderEmployeeStatsError(errorMessage) {
+    const html = `
+        <div class="stats-error">
+            <i class="ri-error-warning-line" style="font-size: 3rem; color: var(--accent-rose); display: block; margin-bottom: 15px;"></i>
+            <h4 style="color: var(--accent-rose); margin-bottom: 10px;">حدث خطأ</h4>
+            <p style="color: var(--text-secondary);">${errorMessage}</p>
+            <button onclick="showEmployeeStats()" style="background: var(--accent-indigo); color: white; border: none; padding: 10px 20px; border-radius: 10px; font-family: inherit; font-weight: 700; cursor: pointer; margin-top: 15px;">
+                إعادة المحاولة
+            </button>
+        </div>
+    `;
+    elements.statsContent.innerHTML = html;
+}
+
+// دالة عرض الإحصائيات
+function renderEmployeeStats(stats) {
+    // تحديد فئة الأداء بناءً على النسبة العامة فقط - نفس Mini Dash
+    const deliveryRateClass = getDeliveryRateClass(stats.overallRate);
+    const performanceLevel = getPerformanceClass(stats.overallRate);
+    
+    // تحديد الأيقونة والنص بناءً على المستوى (5 مستويات)
+    let performanceIcon, performanceText, performanceMessage;
+    
+    switch(performanceLevel) {
+        case 'excellent':
+            performanceIcon = 'ri-award-fill';
+            performanceText = 'مستوى ممتاز';
+            performanceMessage = 'أداء استثنائي، استمري على هذا التميز!';
+            break;
+        case 'high':
+            performanceIcon = 'ri-emotion-happy-line';
+            performanceText = 'مستوى جيد';
+            performanceMessage = 'أداء جيد، هناك مجال للتحسين للوصول للتميز.';
+            break;
+        case 'medium':
+            performanceIcon = 'ri-emotion-normal-line';
+            performanceText = 'مستوى متوسط';
+            performanceMessage = 'أداء متوسط، ركزي على زيادة نسبة التسليمات.';
+            break;
+        case 'low':
+            performanceIcon = 'ri-emotion-sad-line';
+            performanceText = 'مستوى ضعيف';
+            performanceMessage = 'أداء ضعيف، تحتاجين لتحسين نسبة التسليمات.';
+            break;
+        case 'critical':
+            performanceIcon = 'ri-emotion-unhappy-line';
+            performanceText = 'مستوى حرج';
+            performanceMessage = 'أداء حرج، ركزي على زيادة النسبة فوراً.';
+            break;
+        default:
+            performanceIcon = 'ri-emotion-normal-line';
+            performanceText = 'مستوى متوسط';
+            performanceMessage = 'هناك مجال للتحسين';
+    }
+    
+    const html = `
+        <div class="stats-container">
+            <!-- النسب العامة -->
+            <div class="stat-card highlight">
+                <div class="stat-title">
+                    <i class="ri-award-line"></i>
+                    نسبة التسليمات العامة
+                </div>
+                <div class="stat-value ${deliveryRateClass}">
+                    ${stats.overallRate}%
+                </div>
+                <div class="stat-subtitle">
+                    إجمالي التسليمات: ${stats.deliveredAll || 0} من ${stats.totalAll || 0}
+                </div>
+            </div>
+            
+            <!-- الشهر الحالي -->
+            <div class="stat-card">
+                <div class="stat-title">
+                    <i class="ri-calendar-line"></i>
+                    الشهر الحالي
+                </div>
+                <div class="stat-value ${stats.currentMonthRate > 0 ? getDeliveryRateClass(stats.currentMonthRate) : ''}">
+                    ${stats.currentMonthRate || 0}%
+                </div>
+                <div class="stat-subtitle">
+                    الترتيب: ${stats.currentMonthRank > 0 ? stats.currentMonthRank : '-'}/${stats.totalEmployees > 0 ? stats.totalEmployees : '-'}
+                    <br>
+                    التسليمات: ${stats.deliveredMonth || 0} من ${stats.totalMonth || 0}
+                </div>
+            </div>
+            
+            <!-- الترتيب العام -->
+            <div class="stat-card">
+                <div class="stat-title">
+                    <i class="ri-trophy-line"></i>
+                    الترتيب العام
+                </div>
+                <div class="stat-value">
+                    المركز ${stats.overallRank || '-'}
+                </div>
+                <div class="stat-subtitle">
+                    من إجمالي ${stats.totalEmployees || '-'} موظفة
+                </div>
+            </div>
+            
+            <!-- مستوى الأداء -->
+            <div class="performance-card ${performanceLevel}">
+                <div class="performance-icon">
+                    <i class="${performanceIcon}"></i>
+                </div>
+                <div class="performance-text">
+                    <strong>${performanceText}</strong>
+                    <small>${performanceMessage}</small>
+                </div>
+            </div>
+            
+            <!-- ملاحظة -->
+            <div class="note-card">
+                <i class="ri-information-line"></i>
+                <span>نفس الأرقام المعروضة في <strong>Mini Dash</strong></span>
+            </div>
+        </div>
+    `;
+    
+    elements.statsContent.innerHTML = html;
+}
+
+// دالة لتحديد فئة الأداء (لون) - بناءً على النطاق الواقعي للتسليمات
+function getDeliveryRateClass(rate) {
+    const n = parseFloat(rate);
+    if (n >= 26) return 'delivery-rate-excellent';  // ممتاز  ≥ 26%
+    if (n >= 21) return 'delivery-rate-high';        // جيد    ≥ 21%
+    if (n >= 18) return 'delivery-rate-medium';      // متوسط  ≥ 18%
+    if (n >= 15) return 'delivery-rate-low';         // ضعيف   ≥ 15%
+    return 'delivery-rate-critical';                 // حرج    < 15%
+}
+
+// دالة مساعدة لتحديد فئة الأداء (لون) بناءً على النسب
+function getPerformanceClass(rate) {
+    const deliveryClass = getDeliveryRateClass(rate);
+    
+    // تحويل delivery-rate-class إلى performance-level
+    if (deliveryClass === 'delivery-rate-excellent') return 'excellent';
+    if (deliveryClass === 'delivery-rate-high') return 'high';
+    if (deliveryClass === 'delivery-rate-medium') return 'medium';
+    if (deliveryClass === 'delivery-rate-low') return 'low';
+    return 'critical';
+}
+
+// زر تحديث لوحة الأدمن
+document.getElementById('admin-refresh-btn').addEventListener('click', () => {
+    loadAdminDashboard();
+});
+
+if (elements.searchInput) {
+    elements.searchInput.addEventListener('input', () => {
+        const searchQuery = (elements.searchInput.value || '').trim();
+        
+        // إذا كان البحث فارغ، عرض جميع الطلبات
+        if (!searchQuery) {
+            renderDashboard();
+            return;
+        }
+        
+        // إظهار حالة البحث
+        elements.ordersContainer.innerHTML = `
+            <div style="text-align:center;padding:3rem;color:var(--text-secondary);">
+                <i class="ri-loader-4-line ri-spin" style="font-size: 2rem; display: block; margin-bottom: 10px;"></i>
+                <span style="font-weight:700;">جاري البحث...</span>
+            </div>
+        `;
+        
+        // البحث في البيانات الحالية + الأرشيفية
+        if (state.userRole === 'employee') {
+            google.script.run
+                .withSuccessHandler(function(data) {
+                    if (data.success) {
+                        // تحديث البيانات بنتائج البحث
+                        state.lastEmployeeSearchResults = data.results;
+                        renderEmployeeSearchResults(data.results);
+                    } else {
+                        renderDashboard();
+                    }
+                })
+                .withFailureHandler(function(err) {
+                    console.error('خطأ في البحث:', err);
+                    renderDashboard();
+                })
+                .employeeSearchOrders(state.currentUser, searchQuery);
+        } else {
+            // للموظفات من النوع store، نستخدم البحث العادي
+            renderDashboard();
+        }
+    });
+}
+
+// 2. منطق لوحة القيادة
+const calculateKPIs = (orders) => {
+    if (state.userRole === 'store') {
+        const kpis = { total: orders.length, done: 0, notDone: 0, pending: 0 };
+        orders.forEach(order => {
+            const status = (order['تبليغ المسؤول'] || '').toString().trim();
+            if (status === 'لم يتم') {
+                kpis.notDone++;
+            } else if (status !== '') {
+                kpis.done++;
+            } else {
+                kpis.pending++;
+            }
+        });
+        return kpis;
+    }
+
+    const kpis = {
+        total: orders.length,
+        noStatus: 0,
+        statusCounts: {}
+    };
+
+    orders.forEach(order => {
+        const status = order['الحالة - العميل'];
+        if (!status || status.trim() === '') {
+            kpis.noStatus++;
+        } else {
+            kpis.statusCounts[status] = (kpis.statusCounts[status] || 0) + 1;
+        }
+    });
+
+    return kpis;
+};
+
+window.switchMainTab = (tabName) => {
+    const tabCurrent = document.getElementById('tab-title-current');
+    const tabFollowup = document.getElementById('tab-title-followup');
+    
+    if (tabName === 'current') {
+        if (tabCurrent) { tabCurrent.style.color = 'var(--text-primary)'; tabCurrent.style.borderBottom = '3px solid var(--accent-indigo)'; }
+        if (tabFollowup) { tabFollowup.style.color = 'var(--text-secondary)'; tabFollowup.style.borderBottom = '3px solid transparent'; }
+        if (state.currentStoreTab === 'follow_up') state.currentStoreTab = 'normal';
+    } else {
+        if (tabFollowup) { tabFollowup.style.color = 'var(--text-primary)'; tabFollowup.style.borderBottom = '3px solid var(--accent-indigo)'; }
+        if (tabCurrent) { tabCurrent.style.color = 'var(--text-secondary)'; tabCurrent.style.borderBottom = '3px solid transparent'; }
+        state.currentStoreTab = 'follow_up';
+    }
+    
+    renderDashboard();
+};
+
+window.switchStoreTab = (tabName) => {
+    state.currentStoreTab = tabName;
+    renderDashboard();
+};
+
+window.switchEmployeeTab = (tabName) => {
+    state.currentEmployeeTab = tabName;
+    renderDashboard();
+};
+
+window.renderEmployeeSearchResults = (results) => {
+    if (!results || results.length === 0) {
+        renderDashboard();
+        return;
+    }
+
+    const el = elements.ordersContainer;
+    if (!el) return;
+
+    let html = `<div style="padding:10px;"><p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:12px;"><i class="ri-list-check" style="vertical-align: middle; margin-left: 4px;"></i>تم العثور على ${results.length} نتيجة:</p>`;
+    
+    results.forEach(order => {
+        const statusColor = getStatusColor(order['الحالة - العميل']);
+        // تحويل الرقم لـ واتس (إزالة الـ 0 من البداية وإضافة +218)
+        // استخراج الرقم الأول إذا كان فيه عدة أرقام أو شرطة
+        const cleanAgentPhone = (phone) => {
+            if (!phone) return null;
+            const str = phone.toString().trim();
+            // استخراج أول رقم من الأرقام المفصولة بـ - أو مسافة
+            const match = str.match(/^0[\d]{9}/); // أول رقم بيدي مع 0 و9 أرقام
+            return match ? match[0] : null;
+        };
+        const cleanCustomerPhone = (phone) => {
+            if (!phone) return null;
+            const str = phone.toString().trim();
+            const match = str.match(/^0[\d]{9}/);
+            return match ? match[0] : null;
+        };
+        
+        const customerPhone = cleanCustomerPhone(order['رقم العميل']);
+        const agentPhone = cleanAgentPhone(order['رقم المندوب']);
+        
+        const customerWA = customerPhone ? '218' + customerPhone.replace(/^0/, '').replace(/\s/g, '') : null;
+        const agentWA = agentPhone ? '218' + agentPhone.replace(/^0/, '').replace(/\s/g, '') : null;
+        
+        html += `
+        <div class="order-card" style="margin-bottom:12px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;padding: 12px 12px 6px;">
+                <div>
+                    <div style="font-weight:800;font-size:1.1rem;color:var(--text-primary); display:flex; align-items:center; flex-wrap:wrap; gap:6px;">
+                        <i class="ri-barcode-box-line"></i> ${order['كود الطلب'] || 'بدون كود'}
+                        ${order.isHistorical ? `<span style="background: linear-gradient(135deg, #f59e0b, #d97706); color: white; font-size: 0.65rem; padding: 2px 8px; border-radius: 20px; font-weight: 800; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-archive-line"></i> أرشيف</span>` : ''}
+                    </div>
+                    <div style="font-size:0.85rem;color:var(--text-secondary);margin-top:2px;">
+                        <i class="ri-user-star-line"></i> الموظفة: <strong style="color:var(--text-primary);">${order['الاسم']}</strong>
+                    </div>
+                </div>
+                <span class="status-badge indigo"><i class="ri-store-2-line"></i> ${order['المتجر'] || 'بدون متجر'}</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:0.85rem;padding:0 12px;">
+                <div><i class="ri-smartphone-line"></i> العميل: <span dir="ltr" style="color:var(--text-primary);font-weight:600;">${order['رقم العميل'] || '-'}</span></div>
+                <div><i class="ri-truck-line"></i> المندوب: <span dir="ltr" style="color:var(--text-primary);font-weight:600;">${order['رقم المندوب'] || '-'}</span></div>
+                <div><i class="ri-shopping-bag-line"></i> المنتج: <span style="color:var(--text-primary);font-weight:600;">${order['اسم المنتج'] || '-'}</span></div>
+                <div><i class="ri-money-dollar-circle-line"></i> السعر: <span style="color:var(--accent-emerald);font-weight:700;">${order['السعر'] || '-'}</span></div>
+                <div style="grid-column: span 2;"><i class="ri-sticky-note-line"></i> ملاحظة الإدارة: <span style="color:var(--text-primary);">${order['ملاحظة'] || '-'}</span></div>
+                <div style="grid-column: span 2;"><i class="ri-chat-4-line"></i> ملاحظة العميل: <span style="color:var(--accent-indigo);">${order['ملاحظة - العميل'] || '-'}</span></div>
+                <div style="grid-column: span 2;"><i class="ri-chat-1-line"></i> ملاحظة المندوب: <span style="color:var(--accent-indigo);">${order['ملاحظة - المندوب'] || '-'}</span></div>
+                
+                <div style="grid-column: span 2;border-top:1px solid var(--border-color);padding-top:8px;margin-top:4px;">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                        <span style="color:var(--text-secondary);"><i class="ri-information-line"></i> حالة العميل:</span>
+                        <span class="status-badge amber">${order['الحالة - العميل'] || 'لم يحدد'}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:8px;background:rgba(99,102,241,0.05);padding:8px;border-radius:10px;border:1px solid rgba(99,102,241,0.1);">
+                        <span style="color:var(--text-secondary);font-weight:600;"><i class="ri-truck-line"></i> حالة الشحنة:</span>
+                        <span class="status-badge indigo" style="font-size:0.85rem;padding:4px 12px;">${order['الحالة - الشحنه'] || 'لم تحدد'}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;">
+                        <span style="color:var(--text-secondary);"><i class="ri-time-line"></i> آخر تحديث:</span>
+                        <span style="color:var(--text-primary);font-size:0.8rem;">${order['التاريخ'] || '-'}</span>
+                    </div>
+                </div>
+            </div>
+            <div style="padding:12px; border-top:1px solid var(--border-color); display:flex; gap:8px; justify-content:flex-end; flex-wrap: wrap;">
+                ${customerWA ? `
+                <a href="https://wa.me/${customerWA}" target="_blank" rel="noopener noreferrer" style="background: linear-gradient(135deg, #25d366, #128c7e); color: white; padding: 6px 12px; font-size: 0.75rem; border-radius: 8px; border: none; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; text-decoration: none; transition: all 0.2s;"
+                        onmouseover="this.style.background='linear-gradient(135deg, #128c7e, #0f6956)';"
+                        onmouseout="this.style.background='linear-gradient(135deg, #25d366, #128c7e)';"
+                        title="فتح محادثة واتس مع العميل">
+                    <i class="ri-whatsapp-line"></i> واتس العميل
+                </a>
+                ` : ''}
+                ${agentWA ? `
+                <a href="https://wa.me/${agentWA}" target="_blank" rel="noopener noreferrer" style="background: linear-gradient(135deg, #25d366, #128c7e); color: white; padding: 6px 12px; font-size: 0.75rem; border-radius: 8px; border: none; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; text-decoration: none; transition: all 0.2s;"
+                        onmouseover="this.style.background='linear-gradient(135deg, #128c7e, #0f6956)';"
+                        onmouseout="this.style.background='linear-gradient(135deg, #25d366, #128c7e)';"
+                        title="فتح محادثة واتس مع المندوب">
+                    <i class="ri-whatsapp-line"></i> واتس المندوب
+                </a>
+                ` : ''}
+                <button style="background: var(--accent-indigo-light); color: var(--accent-indigo); padding: 6px 12px; font-size: 0.75rem; border-radius: 8px; border: 1px solid rgba(99,102,241,0.2); font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.2s;" 
+                        onclick="openEmployeeOrderModal('${order.id}')"
+                        onmouseover="this.style.background='var(--accent-indigo)'; this.style.color='white';"
+                        onmouseout="this.style.background='var(--accent-indigo-light)'; this.style.color='var(--accent-indigo)';"
+                >
+                    <i class="ri-edit-2-line"></i> تعديل
+                </button>
+                <button style="background: var(--accent-indigo-light); color: var(--accent-indigo); padding: 6px 12px; font-size: 0.75rem; border-radius: 8px; border: 1px solid rgba(99,102,241,0.2); font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.2s;" 
+                        onclick="copyFullOrderDetailsEmployee('${order.id}', event)"
+                        onmouseover="this.style.background='var(--accent-indigo)'; this.style.color='white';"
+                        onmouseout="this.style.background='var(--accent-indigo-light)'; this.style.color='var(--accent-indigo)';"
+                >
+                    <i class="ri-file-copy-2-line"></i> نسخ
+                </button>
+                <button style="background: rgba(107, 114, 128, 0.1); color: #6b7280; padding: 6px 12px; font-size: 0.75rem; border-radius: 8px; border: 1px solid rgba(107, 114, 128, 0.2); font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.2s;" 
+                        onclick="renderDashboard()"
+                        onmouseover="this.style.background='#6b7280'; this.style.color='white';"
+                        onmouseout="this.style.background='rgba(107, 114, 128, 0.1)'; this.style.color='#6b7280';"
+                >
+                    <i class="ri-close-line"></i> إلغاء
+                </button>
+            </div>
+        </div>`;
+    });
+    
+    html += `</div>`;
+    el.innerHTML = html;
+};
+
+const renderDashboard = () => {
+    // ضمان عدم تكرار الطلبات بناءً على _rowIndex (المعرف الفريد من الشيت)
+    const seen = new Set();
+    state.orders = state.orders.filter(o => {
+        const key = o._rowIndex || o.id;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+
+    // مسح الـ container أولاً قبل أي رسم
+    elements.ordersContainer.innerHTML = '';
+
+    const kpis = calculateKPIs(state.orders);
+    let kpiHTML = '';
+
+    if (state.userRole === 'store') {
+        kpiHTML = `
+            <div class="kpi-card highlight">
+                <span class="kpi-title">إجمالي الطلبات</span>
+                <span class="kpi-value">${kpis.total}</span>
+            </div>
+            <div class="kpi-card" style="border-bottom: 3px solid var(--accent-emerald);">
+                <span class="kpi-title">تم التبليغ</span>
+                <span class="kpi-value" style="color: var(--accent-emerald);">${kpis.done}</span>
+            </div>
+            <div class="kpi-card" style="border-bottom: 3px solid var(--accent-rose);">
+                <span class="kpi-title">لم يتم</span>
+                <span class="kpi-value" style="color: var(--accent-rose);">${kpis.notDone}</span>
+            </div>
+            <div class="kpi-card" style="border-bottom: 3px solid var(--accent-amber);">
+                <span class="kpi-title">بانتظار التبليغ</span>
+                <span class="kpi-value" style="color: var(--accent-amber);">${kpis.pending}</span>
+            </div>
+        `;
+    } else {
+        // تحديد الألوان لكل حالة
+        const statusColors = {
+            'رد و يستلم': { border: 'var(--accent-emerald)', text: 'var(--accent-emerald)' },
+            'اجل الاستلام': { border: 'var(--accent-amber)', text: 'var(--accent-amber)' },
+            'الغى الطلب': { border: 'var(--accent-rose)', text: 'var(--accent-rose)' },
+            'لم يرد': { border: '#eab308', text: '#eab308' },
+            'استبدال': { border: 'var(--accent-indigo)', text: 'var(--accent-indigo)' },
+            'استلم': { border: 'var(--accent-emerald)', text: 'var(--accent-emerald)' }
+        };
+        
+        kpiHTML = `
+            <div class="kpi-card highlight">
+                <span class="kpi-title">إجمالي الطلبات</span>
+                <span class="kpi-value">${kpis.total}</span>
+            </div>
+            <div class="kpi-card" style="border-bottom: 3px solid #ef4444;">
+                <span class="kpi-title">بدون حالة</span>
+                <span class="kpi-value" style="color: #ef4444;">${kpis.noStatus}</span>
+            </div>
+        `;
+        Object.entries(kpis.statusCounts).forEach(([status, count]) => {
+            const colors = statusColors[status] || { border: 'var(--border-color)', text: 'var(--text-primary)' };
+            kpiHTML += `
+                <div class="kpi-card" style="border-bottom: 3px solid ${colors.border};">
+                    <span class="kpi-title">${status}</span>
+                    <span class="kpi-value" style="color: ${colors.text};">${count}</span>
+                </div>
+            `;
+        });
+    }
+
+    elements.kpiContainer.innerHTML = kpiHTML;
+
+    const searchQuery = elements.searchInput ? elements.searchInput.value.trim().toLowerCase() : '';
+    let sourceOrders = state.orders;
+
+    if (state.userRole === 'store') {
+        const normalOrders = [];
+        const returnedOrders = [];
+        const postponedOrders = [];
+        const exchangeOrders = [];
+
+        state.orders.forEach(o => {
+            const status = (o['الحالة - العميل'] || '').trim();
+            const note = (o['ملاحظة'] || '').toLowerCase();
+            
+            if (status === 'استبدال') {
+                exchangeOrders.push(o);
+            } else if (status === 'رد و يستلم') {
+                if (note.includes('مرتجع')) {
+                    returnedOrders.push(o);
+                } else if (note.includes('مؤجل')) {
+                    postponedOrders.push(o);
+                } else {
+                    normalOrders.push(o);
+                }
+            }
+        });
+
+        const tabsContainer = document.getElementById('store-tabs-container');
+        if (tabsContainer) {
+            tabsContainer.style.display = 'flex';
+            
+            const isCompleted = (arr) => arr.length > 0 && arr.every(o => {
+                const s = (o['تبليغ المسؤول'] || '').toString().trim();
+                return s === 'تم' || s === 'لم يتم';
+            });
+
+            const getStyle = (tab, arr) => {
+                const active = state.currentStoreTab === tab;
+                const completed = isCompleted(arr);
+                
+                if (completed) {
+                    return active ? 'background:var(--accent-emerald); color:white; border-color:var(--accent-emerald);' 
+                                  : 'background:rgba(16,185,129,0.1); color:var(--accent-emerald); border-color:var(--accent-emerald);';
+                }
+                
+                return active ? 'background:var(--accent-indigo); color:white; border-color:var(--accent-indigo);' 
+                              : 'background:var(--bg-card); color:var(--text-secondary); border-color:var(--border-color);';
+            };
+            
+            let tabsHTML = `
+                <button onclick="switchStoreTab('normal')" style="padding:6px 12px; border:1px solid; border-radius:10px; font-family:inherit; font-size:0.85rem; font-weight:700; cursor:pointer; flex-shrink:0; transition:all 0.2s; ${getStyle('normal', normalOrders)}">رد ويستلم (${normalOrders.length})</button>
+                <button onclick="switchStoreTab('returned')" style="padding:6px 12px; border:1px solid; border-radius:10px; font-family:inherit; font-size:0.85rem; font-weight:700; cursor:pointer; flex-shrink:0; transition:all 0.2s; ${getStyle('returned', returnedOrders)}">مرتجع (${returnedOrders.length})</button>
+                <button onclick="switchStoreTab('postponed')" style="padding:6px 12px; border:1px solid; border-radius:10px; font-family:inherit; font-size:0.85rem; font-weight:700; cursor:pointer; flex-shrink:0; transition:all 0.2s; ${getStyle('postponed', postponedOrders)}">مؤجل (${postponedOrders.length})</button>
+            `;
+            if (exchangeOrders.length > 0) {
+                tabsHTML += `<button onclick="switchStoreTab('exchange')" style="padding:6px 12px; border:1px solid; border-radius:10px; font-family:inherit; font-size:0.85rem; font-weight:700; cursor:pointer; flex-shrink:0; transition:all 0.2s; ${getStyle('exchange', exchangeOrders)}">استبدال (${exchangeOrders.length})</button>`;
+            } else if (state.currentStoreTab === 'exchange') {
+                state.currentStoreTab = 'normal'; // fallback
+            }
+
+            tabsContainer.innerHTML = tabsHTML;
+        }
+
+        const followUpCount = (state.followUpOrders || []).length;
+        const tabTitleFollowUp = document.getElementById('tab-title-followup');
+        const badgeFollowUp = document.getElementById('follow-up-count-badge');
+        
+        if (tabTitleFollowUp && badgeFollowUp) {
+            tabTitleFollowUp.style.display = 'flex';
+            badgeFollowUp.style.display = 'inline-block';
+            badgeFollowUp.textContent = followUpCount;
+            
+            if (state.currentStoreTab === 'follow_up') {
+                if (tabsContainer) tabsContainer.style.display = 'none'; // إخفاء التبويبات الفرعية
+            }
+        }
+
+        if (state.currentStoreTab === 'normal') sourceOrders = normalOrders;
+        else if (state.currentStoreTab === 'returned') sourceOrders = returnedOrders;
+        else if (state.currentStoreTab === 'postponed') sourceOrders = postponedOrders;
+        else if (state.currentStoreTab === 'exchange') sourceOrders = exchangeOrders;
+        else if (state.currentStoreTab === 'follow_up') sourceOrders = state.followUpOrders || [];
+        
+        const filterDropdown = document.getElementById('followup-status-filter-container');
+        if (filterDropdown) {
+            filterDropdown.style.display = state.currentStoreTab === 'follow_up' ? 'block' : 'none';
+        }
+    } else {
+        // للموظفين: إضافة التابات الجديدة
+        const tabsContainer = document.getElementById('store-tabs-container');
+        if (tabsContainer) {
+            // حساب عدد الطلبات لكل تاب
+            const allOrders = state.orders;
+            const noStatusOrders = allOrders.filter(o => {
+                const status = (o['الحالة - العميل'] || '').trim();
+                return !status;
+            });
+            
+            const noAnswerOrders = allOrders.filter(o => {
+                const status = (o['الحالة - العميل'] || '').trim();
+                return status === 'لم يرد';
+            });
+            
+            const pendingShipmentOrders = allOrders.filter(o => {
+                const clientStatus = (o['الحالة - العميل'] || '').trim();
+                const shipStatus = (o['الحالة - الشحنه'] || '').trim();
+                const adminNote = (o['ملاحظة'] || '').toLowerCase();
+                
+                return clientStatus === 'رد و يستلم' && 
+                       !shipStatus && 
+                       !adminNote.includes('مرتجع') && 
+                       !adminNote.includes('مؤجل') && 
+                       !adminNote.includes('مراجعه');
+            });
+            
+            const getEmployeeTabStyle = (tab, count) => {
+                const active = state.currentEmployeeTab === tab;
+                const baseStyle = 'padding:8px 14px; border:1px solid; border-radius:10px; font-family:inherit; font-size:0.85rem; font-weight:700; cursor:pointer; flex-shrink:0; transition:all 0.2s; display:flex; align-items:center; gap:6px;';
+                
+                if (active) {
+                    return baseStyle + 'background:var(--accent-indigo); color:white; border-color:var(--accent-indigo);';
+                } else {
+                    return baseStyle + 'background:var(--bg-card); color:var(--text-secondary); border-color:var(--border-color);';
+                }
+            };
+            
+            const getBadge = (count, color) => {
+                if (count === 0) {
+                    return `<span style="background:rgba(148,163,184,0.15); color:var(--text-secondary); padding:2px 8px; border-radius:12px; font-size:0.75rem; font-weight:800;">0</span>`;
+                }
+                return `<span style="background:${color}; color:white; padding:2px 8px; border-radius:12px; font-size:0.75rem; font-weight:800; box-shadow:0 2px 8px ${color}40;">${count}</span>`;
+            };
+            
+            tabsContainer.style.display = 'flex';
+            tabsContainer.innerHTML = `
+                <button onclick="switchEmployeeTab('all')" style="${getEmployeeTabStyle('all', allOrders.length)}">
+                    <i class="ri-file-list-3-line"></i>
+                    كل الطلبات
+                    ${getBadge(allOrders.length, 'var(--accent-indigo)')}
+                </button>
+                <button onclick="switchEmployeeTab('no_status')" style="${getEmployeeTabStyle('no_status', noStatusOrders.length)}">
+                    <i class="ri-alert-line"></i>
+                    بدون حالة
+                    ${getBadge(noStatusOrders.length, '#ef4444')}
+                </button>
+                <button onclick="switchEmployeeTab('no_answer')" style="${getEmployeeTabStyle('no_answer', noAnswerOrders.length)}">
+                    <i class="ri-phone-line"></i>
+                    لم يرد
+                    ${getBadge(noAnswerOrders.length, '#eab308')}
+                </button>
+                <button onclick="switchEmployeeTab('pending_shipment')" style="${getEmployeeTabStyle('pending_shipment', pendingShipmentOrders.length)}">
+                    <i class="ri-truck-line"></i>
+                    بانتظار الشحن
+                    ${getBadge(pendingShipmentOrders.length, '#f97316')}
+                </button>
+            `;
+            
+            // تحديد sourceOrders بناءً على التاب المختار
+            if (state.currentEmployeeTab === 'no_status') {
+                sourceOrders = noStatusOrders;
+            } else if (state.currentEmployeeTab === 'no_answer') {
+                sourceOrders = noAnswerOrders;
+            } else if (state.currentEmployeeTab === 'pending_shipment') {
+                sourceOrders = pendingShipmentOrders;
+            } else {
+                sourceOrders = allOrders; // 'all' هو الافتراضي
+            }
+        }
+        
+        const filterDropdown = document.getElementById('followup-status-filter-container');
+        if (filterDropdown) filterDropdown.style.display = 'none';
+    }
+
+    let filteredOrders = sourceOrders;
+    
+    // تطبيق فلتر حالة العميل لتاب المتابعة
+    if (state.userRole === 'store' && state.currentStoreTab === 'follow_up') {
+        const statusFilterEl = document.getElementById('followup-status-filter');
+        if (statusFilterEl && statusFilterEl.value) {
+            filteredOrders = filteredOrders.filter(order => {
+                const clientStatus = (order['الحالة - العميل'] || '').trim();
+                return clientStatus === statusFilterEl.value;
+            });
+        }
+    }
+
+    // البحث: للموظفين يشتغل على كل الطلبات، للمتاجر على التاب الحالي
+    if (searchQuery) {
+        const searchSource = (state.userRole === 'employee') ? state.orders : sourceOrders;
+        filteredOrders = searchSource.filter(order => {
+            const code = (order['كود الطلب'] || '').toString().toLowerCase();
+            const phone = (order['رقم العميل'] || '').toString().toLowerCase();
+            return code.includes(searchQuery) || phone.includes(searchQuery);
+        });
+    }
+
+    // ترتيب الطلبات للمتاجر حسب التاريخ (من الأقدم للأحدث)
+    // التاريخ لا يتغير عند تحديث "تم" أو "لم يتم" من مسؤول المتجر
+    if (state.userRole === 'store') {
+        if (state.currentStoreTab === 'follow_up') {
+            filteredOrders.sort((a, b) => {
+                const statusA = (a['تم / لم يتم'] || '').trim();
+                const statusB = (b['تم / لم يتم'] || '').trim();
+                if (!statusA && statusB) return -1;
+                if (statusA && !statusB) return 1;
+                return 0; // maintain original order
+            });
+        } else {
+            filteredOrders.sort((a, b) => parseLibyaDate(a['التاريخ']) - parseLibyaDate(b['التاريخ']));
+        }
+    }
+
+    if (sourceOrders.length === 0) {
+        elements.ordersContainer.innerHTML = `<p style="text-align:center; color:var(--text-secondary); padding: 2rem;">لا توجد طلبات في هذا التبويب.</p>`;
+        return;
+    } else if (filteredOrders.length === 0) {
+        elements.ordersContainer.innerHTML = `<p style="text-align:center; color:var(--text-secondary); padding: 2rem;">لا توجد طلبات مطابقة للبحث.</p>`;
+        return;
+    }
+
+    if (state.userRole === 'store' && state.currentStoreTab === 'follow_up') {
+        elements.ordersContainer.innerHTML = filteredOrders.map(order => createFollowUpCardHTML(order)).join('');
+    } else {
+        elements.ordersContainer.innerHTML = filteredOrders.map(order => {
+            const storeStatus = (order['تبليغ المسؤول'] || '').toString().trim();
+        let cardStyle = '';
+        let cardIndicator = '';
+        
+        if (state.userRole === 'store') {
+            if (storeStatus === 'تم') {
+                cardStyle = 'border: 2px solid var(--accent-emerald); background: rgba(16, 185, 129, 0.05);';
+                cardIndicator = `<div style="background: var(--accent-emerald); color: white; padding: 2px 10px; font-size: 0.65rem; border-radius: 0 0 0 10px; font-weight: 800;"><i class="ri-check-double-line"></i> تم التبليغ</div>`;
+            } else if (storeStatus === 'لم يتم') {
+                cardStyle = 'border: 2px solid var(--accent-rose); background: rgba(244, 63, 94, 0.05);';
+                cardIndicator = `<div style="background: var(--accent-rose); color: white; padding: 2px 10px; font-size: 0.65rem; border-radius: 0 0 0 10px; font-weight: 800;"><i class="ri-close-circle-line"></i> لم يتم</div>`;
+            } else if (storeStatus === 'طلب جديد') {
+                cardStyle = 'border: 2px solid var(--accent-indigo); background: rgba(99, 102, 241, 0.05);';
+                cardIndicator = `<div style="background: var(--accent-indigo); color: white; padding: 2px 10px; font-size: 0.65rem; border-radius: 0 0 0 10px; font-weight: 800;"><i class="ri-file-add-line"></i> طلب جديد</div>`;
+            } else if (storeStatus === 'إعادة إرسال') {
+                cardStyle = 'border: 2px solid var(--accent-amber); background: rgba(245, 158, 11, 0.05);';
+                cardIndicator = `<div style="background: var(--accent-amber); color: white; padding: 2px 10px; font-size: 0.65rem; border-radius: 0 0 0 10px; font-weight: 800;"><i class="ri-refresh-line"></i> إعادة إرسال</div>`;
+            }
+        }
+
+        // حساب أرقام الواتس
+        // استخراج الرقم الأول إذا كان فيه عدة أرقام أو شرطة
+        const cleanAgentPhone = (phone) => {
+            if (!phone) return null;
+            const str = phone.toString().trim();
+            // استخراج أول رقم من الأرقام المفصولة بـ - أو مسافة
+            const match = str.match(/^0[\d]{9}/); // أول رقم بيدي مع 0 و9 أرقام
+            return match ? match[0] : null;
+        };
+        const cleanCustomerPhone = (phone) => {
+            if (!phone) return null;
+            const str = phone.toString().trim();
+            const match = str.match(/^0[\d]{9}/);
+            return match ? match[0] : null;
+        };
+        
+        const customerPhone = cleanCustomerPhone(order['رقم العميل']);
+        const agentPhone = cleanAgentPhone(order['رقم المندوب']);
+        
+        const customerWA = customerPhone ? '218' + customerPhone.replace(/^0/, '').replace(/\s/g, '') : null;
+        const agentWA = agentPhone ? '218' + agentPhone.replace(/^0/, '').replace(/\s/g, '') : null;
+        
+        return `
+        <div class="order-card" onclick="openOrderDetails('${order.id}')" style="${cardStyle}">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--border-color); background: rgba(255,255,255,0.02);">
+                <div style="display:flex; align-items:center;">
+                    <span style="font-size: 0.7rem; color: var(--text-secondary); opacity: 0.8; padding: 6px 12px;"><i class="ri-information-line"></i> اضغط ${state.userRole === 'store' ? 'للتبليغ' : 'للتعديل'}</span>
+                    ${cardIndicator}
+                </div>
+                <button style="background: var(--accent-indigo-light); color: var(--accent-indigo); padding: 4px 10px; font-size: 0.65rem; border-radius: 20px; border: 1px solid rgba(99,102,241,0.2); font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.2s; margin-left: 8px;" 
+                        onclick="copyFullOrderDetails('${order.id}', event)"
+                        onmouseover="this.style.background='var(--accent-indigo)'; this.style.color='white';"
+                        onmouseout="this.style.background='var(--accent-indigo-light)'; this.style.color='var(--accent-indigo)';"
+                >
+                    <i class="ri-file-copy-2-line" style="font-size: 0.85rem;"></i> نسخ البيانات
+                </button>
+            </div>
+            ${order['ملاحظة'] ? `
+                <div class="admin-note-banner ${getNoteClass(order['ملاحظة'])}">
+                    <i class="ri-error-warning-fill"></i>
+                    ${order['ملاحظة']}
+                </div>
+            ` : ''}
+            <div class="order-card-body">
+                <div class="order-header-info">
+                    <div>
+                        <div class="order-code-wrapper" style="display:flex; align-items:center; gap:0.5rem;">
+                            <div class="order-code">${order['كود الطلب'] || 'بدون كود'}</div>
+                            ${order['كود الطلب'] ? `<button class="copy-btn" onclick="copyText('${order['كود الطلب']}', event)"><i class="ri-file-copy-line"></i></button>` : ''}
+                        </div>
+                        <div class="order-customer copy-wrapper">
+                            <i class="ri-user-3-line"></i> 
+                            <span dir="ltr">${order['رقم العميل'] || 'غير متاح'}</span>
+                            ${order['رقم العميل'] ? `<button class="copy-btn" onclick="copyText('${order['رقم العميل']}', event)"><i class="ri-file-copy-line"></i></button>` : ''}
+                        </div>
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:0.4rem; align-items:flex-end;">
+                        ${order['الحالة - العميل'] ? `
+                            <span class="status-badge ${getStatusColor(order['الحالة - العميل'])}">
+                                العميل: ${order['الحالة - العميل']}
+                            </span>
+                        ` : `
+                            <span class="status-badge default">العميل: لم يحدد</span>
+                        `}
+                        ${order['الحالة - الشحنه'] ? `
+                            <span class="status-badge ${getStatusColor(order['الحالة - الشحنه'])}">
+                                الشحنة: ${order['الحالة - الشحنه']}
+                            </span>
+                        ` : `
+                            <span class="status-badge default">الشحنة: لم تحدد</span>
+                        `}
+                    </div>
+                </div>
+                <div class="order-details-grid">
+                    <div class="detail-item">
+                        <span class="detail-label">المنتج</span>
+                        <span class="detail-val copy-wrapper">
+                            <span>${order['اسم المنتج'] || '-'}</span>
+                            ${order['اسم المنتج'] ? `<button class="copy-btn" onclick="copyText('${order['اسم المنتج']}', event)"><i class="ri-file-copy-line"></i></button>` : ''}
+                        </span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">رقم المندوب</span>
+                        <span class="detail-val copy-wrapper">
+                            <span dir="ltr">${order['رقم المندوب'] || '-'}</span>
+                            ${order['رقم المندوب'] ? `<button class="copy-btn" onclick="copyText('${order['رقم المندوب']}', event)"><i class="ri-file-copy-line"></i></button>` : ''}
+                        </span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">السعر</span>
+                        <span class="detail-val">${order['السعر'] || '-'}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">المتجر</span>
+                        <span class="detail-val">${order['المتجر'] || '-'}</span>
+                    </div>
+                    ${order['حالة المرتجع'] ? `
+                    <div class="detail-item" style="grid-column: span 2; background: rgba(244, 63, 94, 0.08); border-radius: 8px; padding: 6px 10px; border: 1px solid rgba(244, 63, 94, 0.15); margin-bottom: 4px;">
+                        <span class="detail-label" style="color: var(--accent-rose); font-size: 0.7rem;">الحالة الأصلية للمرتجع</span>
+                        <span class="detail-val" style="color: var(--accent-rose); font-weight: 800; font-size: 0.85rem;">${order['حالة المرتجع']}</span>
+                    </div>
+                    ` : ''}
+                    <div class="detail-item" style="grid-column: span 2;">
+                        <span class="detail-label">آخر تحديث</span>
+                        <span class="detail-val">${formatDate(order['التاريخ'])}</span>
+                    </div>
+                </div>
+                <div style="padding: 12px; border-top: 1px solid var(--border-color); display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
+                    ${customerWA ? `
+                    <a href="https://wa.me/${customerWA}" target="_blank" rel="noopener noreferrer" style="background: linear-gradient(135deg, #25d366, #128c7e); color: white; padding: 6px 12px; font-size: 0.75rem; border-radius: 8px; border: none; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; text-decoration: none; transition: all 0.2s;"
+                        onmouseover="this.style.background='linear-gradient(135deg, #128c7e, #0f6956)';"
+                        onmouseout="this.style.background='linear-gradient(135deg, #25d366, #128c7e)';"
+                        title="فتح محادثة واتس مع العميل">
+                        <i class="ri-whatsapp-line"></i> واتس العميل
+                    </a>
+                    ` : ''}
+                    ${agentWA ? `
+                    <a href="https://wa.me/${agentWA}" target="_blank" rel="noopener noreferrer" style="background: linear-gradient(135deg, #25d366, #128c7e); color: white; padding: 6px 12px; font-size: 0.75rem; border-radius: 8px; border: none; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; text-decoration: none; transition: all 0.2s;"
+                        onmouseover="this.style.background='linear-gradient(135deg, #128c7e, #0f6956)';"
+                        onmouseout="this.style.background='linear-gradient(135deg, #25d366, #128c7e)';"
+                        title="فتح محادثة واتس مع المندوب">
+                        <i class="ri-whatsapp-line"></i> واتس المندوب
+                    </a>
+                    ` : ''}
+                </div>
+            </div>
+        </div>
+    `}).join('');
+    }
+};
+
+// 3. تفاصيل الطلب (النافذة السفلية)
+
+const createFollowUpCardHTML = (order) => {
+    const status = (order['تم / لم يتم'] || '').trim();
+    let statusBadge = '';
+    if (status === 'تم') statusBadge = '<span class="status-badge" style="background:var(--accent-emerald); color:white;">تم</span>';
+    else if (status === 'لم يتم') statusBadge = '<span class="status-badge" style="background:var(--accent-rose); color:white;">لم يتم</span>';
+    else if (status === 'قيد البحث') statusBadge = '<span class="status-badge" style="background:var(--accent-amber); color:white;">قيد البحث</span>';
+
+    // حساب أرقام الواتس
+    // استخراج الرقم الأول إذا كان فيه عدة أرقام أو شرطة
+    const cleanAgentPhone = (phone) => {
+        if (!phone) return null;
+        const str = phone.toString().trim();
+        // استخراج أول رقم من الأرقام المفصولة بـ - أو مسافة
+        const match = str.match(/^0[\d]{9}/); // أول رقم بيدي مع 0 و9 أرقام
+        return match ? match[0] : null;
+    };
+    const cleanCustomerPhone = (phone) => {
+        if (!phone) return null;
+        const str = phone.toString().trim();
+        const match = str.match(/^0[\d]{9}/);
+        return match ? match[0] : null;
+    };
+    
+    const customerPhone = cleanCustomerPhone(order['رقم العميل']);
+    const agentPhone = cleanAgentPhone(order['رقم المندوب']);
+    
+    const customerWA = customerPhone ? '218' + customerPhone.replace(/^0/, '').replace(/\s/g, '') : null;
+    const agentWA = agentPhone ? '218' + agentPhone.replace(/^0/, '').replace(/\s/g, '') : null;
+    
+    return `
+    <div class="order-card" style="margin-bottom: 12px; padding: 12px; border-right: 4px solid var(--accent-indigo);">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 8px;">
+            <div>
+                <div style="font-weight:800; font-size:1rem; color:var(--text-primary); cursor:pointer;" onclick="copyText('${order['كود الطلب']}')" title="نسخ الكود">
+                    ${order['كود الطلب'] || 'بدون كود'} <i class="ri-file-copy-line" style="font-size:0.85rem; color:var(--accent-indigo);"></i>
+                </div>
+                <div style="font-size:0.8rem; color:var(--text-secondary); margin-top:2px;">
+                    <i class="ri-user-3-line"></i> ${order['الاسم']} | <i class="ri-shopping-cart-2-line"></i> ${order['المنتج'] || '-'}
+                </div>
+            </div>
+            ${statusBadge}
+        </div>
+        
+        <div style="display:flex; flex-direction:column; gap:4px; font-size:0.8rem; margin-bottom:12px; background:rgba(255,255,255,0.02); padding:8px; border-radius:8px;">
+            <div><span style="color:var(--text-secondary);">حالة العميل:</span> <span class="status-badge indigo">${order['الحالة - العميل'] || '-'}</span></div>
+            <div><span style="color:var(--text-secondary);">حالة الشحنة:</span> <span class="status-badge amber">${order['الحالة - الشحنه'] || '-'}</span></div>
+            ${order['ملاحظة - العميل'] ? `<div style="margin-top:4px;"><span style="color:var(--text-secondary);">ملاحظة العميل:</span> <span style="color:var(--accent-indigo);">${order['ملاحظة - العميل']}</span></div>` : ''}
+        </div>
+        
+        <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px dashed var(--border-color); padding-top:10px;">
+            <div style="flex-grow:1; margin-left:10px;">
+                <select class="form-control" onchange="updateFollowUpAction(${order._rowIndex}, this.value, '${order.id}')" style="padding: 8px; font-size: 0.85rem; background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 8px;">
+                    <option value="" ${!status ? 'selected' : ''}>-- اختر الحالة --</option>
+                    <option value="تم" ${status === 'تم' ? 'selected' : ''}>تم</option>
+                    <option value="لم يتم" ${status === 'لم يتم' ? 'selected' : ''}>لم يتم</option>
+                    <option value="قيد البحث" ${status === 'قيد البحث' ? 'selected' : ''}>قيد البحث</option>
+                </select>
+            </div>
+            <div style="font-size:0.7rem; color:var(--text-secondary);">${order['التاريخ'] || ''}</div>
+        </div>
+        <div style="padding:12px; border-top:1px solid var(--border-color); display:flex; gap:8px; justify-content:flex-end; flex-wrap: wrap;">
+            ${customerWA ? `
+            <a href="https://wa.me/${customerWA}" target="_blank" rel="noopener noreferrer" style="background: linear-gradient(135deg, #25d366, #128c7e); color: white; padding: 6px 12px; font-size: 0.75rem; border-radius: 8px; border: none; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; text-decoration: none; transition: all 0.2s;"
+                    onmouseover="this.style.background='linear-gradient(135deg, #128c7e, #0f6956)';"
+                    onmouseout="this.style.background='linear-gradient(135deg, #25d366, #128c7e)';"
+                    title="فتح محادثة واتس مع العميل">
+                <i class="ri-whatsapp-line"></i> واتس العميل
+            </a>
+            ` : ''}
+            ${agentWA ? `
+            <a href="https://wa.me/${agentWA}" target="_blank" rel="noopener noreferrer" style="background: linear-gradient(135deg, #25d366, #128c7e); color: white; padding: 6px 12px; font-size: 0.75rem; border-radius: 8px; border: none; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; text-decoration: none; transition: all 0.2s;"
+                    onmouseover="this.style.background='linear-gradient(135deg, #128c7e, #0f6956)';"
+                    onmouseout="this.style.background='linear-gradient(135deg, #25d366, #128c7e)';"
+                    title="فتح محادثة واتس مع المندوب">
+                <i class="ri-whatsapp-line"></i> واتس المندوب
+            </a>
+            ` : ''}
+        </div>
+        <div id="followup-save-status-${order.id}" style="text-align: center; margin-top: 5px; font-size: 0.75rem; min-height: 15px;"></div>
+    </div>
+    `;
+};
+
+window.updateFollowUpAction = (rowIndex, status, orderId) => {
+    const statusDiv = document.getElementById('followup-save-status-' + orderId);
+    if (statusDiv) {
+        statusDiv.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> جاري الحفظ...';
+        statusDiv.style.color = 'var(--accent-amber)';
+    }
+    
+    google.script.run
+        .withSuccessHandler(function(success) {
+            if (success) {
+                if (statusDiv) {
+                    statusDiv.innerHTML = '<i class="ri-check-line"></i> تم الحفظ';
+                    statusDiv.style.color = 'var(--accent-emerald)';
+                }
+                // تحديث الـ state المحلي
+                const idx = state.followUpOrders.findIndex(o => o.id === orderId);
+                if (idx !== -1) {
+                    state.followUpOrders[idx]['تم / لم يتم'] = status;
+                }
+                // إعادة رسم بعد ثانية لنقل الكارت لأسفل القائمة
+                setTimeout(() => {
+                    renderDashboard();
+                }, 1000);
+            } else {
+                if (statusDiv) {
+                    statusDiv.innerHTML = '<i class="ri-error-warning-line"></i> حدث خطأ';
+                    statusDiv.style.color = 'var(--accent-rose)';
+                }
+            }
+        })
+        .withFailureHandler(function(error) {
+            if (statusDiv) {
+                statusDiv.innerHTML = '<i class="ri-error-warning-line"></i> فشل الحفظ';
+                statusDiv.style.color = 'var(--accent-rose)';
+            }
+        })
+        .updateFollowUpOrderStatus(rowIndex, status);
+};
+
+// دالة لبناء options الـ dropdown مع تحديد الحالة المحفوظة
+const getStoreStatusOptions = (currentStatus) => {
+    const statusMap = {
+        'تم': 'done',
+        'لم يتم': 'not_done',
+        'طلب جديد': 'new_order',
+        'إعادة إرسال': 'resend'
+    };
+    
+    const currentValue = statusMap[currentStatus] || '';
+    
+    const options = [
+        { value: '', label: '-- اختر الحالة --' },
+        { value: 'done', label: 'تم' },
+        { value: 'not_done', label: 'لم يتم' },
+        { value: 'new_order', label: 'طلب جديد' },
+        { value: 'resend', label: 'إعادة إرسال' }
+    ];
+    
+    return options.map(opt => 
+        `<option value="${opt.value}" ${opt.value === currentValue ? 'selected' : ''}>${opt.label}</option>`
+    ).join('');
+};
+
+window.openOrderDetails = (orderId) => {
+    const order = state.orders.find(o => o.id === orderId);
+    if (!order) return;
+    
+    state.currentOrder = order;
+    elements.sheetOrderCode.textContent = `${order['كود الطلب']}`;
+    
+    const callAttempts = parseInt(order['عدد مرات الاتصال']) || 0;
+    const callStatusText = callAttempts > 5 ? "أكثر من 5 محاولات" : "5 أو أقل";
+
+    // توليد القوائم المنسدلة
+    const clientStatusOptions = `<option value="">اختر الحالة</option>` + 
+        clientStatuses.map(s => `<option value="${s}" ${order['الحالة - العميل'] === s ? 'selected' : ''}>${s}</option>`).join('');
+        
+    const shipmentStatusOptions = `<option value="">اختر الحالة</option>` + 
+        shipmentStatuses.map(s => `<option value="${s}" ${order['الحالة - الشحنه'] === s ? 'selected' : ''}>${s}</option>`).join('');
+
+    const adminNoteHTML = order['ملاحظة'] ? `
+        <div class="admin-note-banner ${getNoteClass(order['ملاحظة'])}" style="margin-bottom: 20px; border-radius: 12px; font-size: 0.95rem; padding: 12px; border: 1px solid rgba(255,255,255,0.1);">
+            <i class="ri-error-warning-fill" style="font-size: 1.2rem;"></i>
+            <span><strong>تنبيه من الإدارة:</strong> ${order['ملاحظة']}</span>
+        </div>
+    ` : '';
+
+    let bodyHTML = '';
+    
+    if (state.userRole === 'store') {
+        // واجهة مسؤول المتجر (عرض تفاصيل كاملة + ملاحظة + أزرار تم/لم يتم)
+        bodyHTML = adminNoteHTML + `
+            <div class="info-banner" style="background: rgba(16, 185, 129, 0.1); color: var(--accent-emerald); margin-bottom: 20px;">
+                <i class="ri-user-smile-line"></i>
+                <span>الموظفة المسؤولة: <strong>${order['الاسم'] || 'غير محدد'}</strong></span>
+            </div>
+
+            <div class="action-buttons" style="grid-template-columns: 1fr; margin-bottom: 20px;">
+                <button class="btn-action" onclick="handleCall('customer', '${order['رقم العميل']}')">
+                    <i class="ri-phone-fill"></i>
+                    <div class="action-text">
+                        <span>الاتصال بالعميل</span>
+                        <span dir="ltr" class="phone-number">${order['رقم العميل'] || 'غير متاح'}</span>
+                    </div>
+                </button>
+            </div>
+
+            <!-- تفاصيل الطلبية كاملة للمسؤول -->
+            <div style="background: var(--bg-card); padding: 15px; border-radius: 12px; border: 1px solid var(--border-color); margin-bottom: 20px;">
+                <h4 style="margin-bottom:12px; font-size:1rem; color:var(--accent-indigo); border-bottom:1px solid var(--border-color); padding-bottom:8px;">تفاصيل الطلب</h4>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; font-size:0.85rem;">
+                    <div><span style="color:var(--text-secondary);">كود الطلب:</span> <span style="color:var(--text-primary); font-weight:700;">${order['كود الطلب'] || '-'}</span></div>
+                    <div><span style="color:var(--text-secondary);">المنتج:</span> <span style="color:var(--text-primary); font-weight:700;">${order['اسم المنتج'] || '-'}</span></div>
+                    <div><span style="color:var(--text-secondary);">السعر:</span> <span style="color:var(--accent-emerald); font-weight:700;">${order['السعر'] || '-'}</span></div>
+                    <div><span style="color:var(--text-secondary);">المندوب:</span> <span dir="ltr" style="color:var(--text-primary); font-weight:700;">${order['رقم المندوب'] || '-'}</span></div>
+                    <div style="grid-column: span 2;"><span style="color:var(--text-secondary);">ملاحظة الإدارة:</span> <p style="margin-top:4px;">${order['ملاحظة'] || '-'}</p></div>
+                    ${order['حالة المرتجع'] ? `
+                    <div style="grid-column: span 2; background: rgba(244, 63, 94, 0.1); padding: 10px; border-radius: 10px; border: 1px solid rgba(244, 63, 94, 0.2); margin-top: 5px;">
+                        <span style="color:var(--accent-rose); font-weight:700; font-size: 0.8rem; display: block; margin-bottom: 2px;">الحالة الأصلية للمرتجع:</span>
+                        <span style="color:var(--accent-rose); font-weight:800; font-size: 1rem;">${order['حالة المرتجع']}</span>
+                    </div>
+                    ` : ''}
+                </div>
+            </div>
+
+            <div style="background: var(--bg-card); padding: 15px; border-radius: 12px; border: 1px solid var(--border-color); margin-bottom: 20px;">
+                <div style="margin-bottom: 10px; display: flex; justify-content: space-between;">
+                    <span style="color: var(--text-secondary);">حالة العميل:</span>
+                    <span class="status-badge indigo">${order['الحالة - العميل']}</span>
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <span style="color: var(--text-secondary);">ملاحظة الموظفة (عميل):</span>
+                    <p style="margin-top: 5px; font-size: 0.9rem;">${order['ملاحظة - العميل'] || '-'}</p>
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <span style="color: var(--text-secondary);">ملاحظة الموظفة (مندوب):</span>
+                    <p style="margin-top: 5px; font-size: 0.9rem;">${order['ملاحظة - المندوب'] || '-'}</p>
+                </div>
+                <div style="padding-top: 10px; border-top: 1px solid var(--border-color);">
+                    <span style="color: var(--text-secondary);">حالة الشحنة الحالية:</span>
+                    <span class="status-badge amber">${order['الحالة - الشحنه'] || 'لم تحدد بعد'}</span>
+                </div>
+            </div>
+
+            <!-- خانة ملاحظة المسؤول -->
+            <div class="form-group">
+                <label><i class="ri-edit-line"></i> ملاحظة المسؤول (حفظ تلقائي)</label>
+                <textarea class="form-control" id="store-manager-note" placeholder="اكتب ملاحظاتك هنا..." style="min-height:80px;" oninput="clearTimeout(window.storeNoteTimeout); window.storeNoteTimeout = setTimeout(() => autoSaveStoreAction(${order._rowIndex}), 1000)">${order['ملاحظة مسؤول المتجر'] || order['ملاحظه المسؤول'] || ''}</textarea>
+            </div>
+
+            <!-- اختيار حالة التبليغ -->
+            <div class="form-group" style="margin-top: 15px;">
+                <label><i class="ri-checkbox-circle-line"></i> حالة التبليغ (حفظ تلقائي)</label>
+                <select class="form-control" id="store-status-select" onchange="autoSaveStoreAction(${order._rowIndex})" style="padding: 12px; font-size: 1rem; font-weight: 600; border-radius: 12px; border: 2px solid var(--border-color); background: var(--bg-card); color: var(--text-primary);">
+                    ${getStoreStatusOptions(order['تبليغ المسؤول'])}
+                </select>
+            </div>
+            
+            <div id="store-save-status" style="text-align: center; margin-top: 10px; font-size: 0.85rem; color: var(--text-secondary); min-height: 20px;"></div>
+        `;
+    } else {
+        // واجهة الموظفة العادية
+        bodyHTML = adminNoteHTML + `
+            <div class="action-buttons">
+                <button class="btn-action" onclick="handleCall('customer', '${order['رقم العميل']}')">
+                    <i class="ri-phone-fill"></i>
+                    <div class="action-text">
+                        <span>الاتصال بالعميل</span>
+                        <span dir="ltr" class="phone-number">${order['رقم العميل'] || 'غير متاح'}</span>
+                    </div>
+                </button>
+                <button class="btn-action" onclick="handleCall('agent', '${order['رقم المندوب']}')">
+                    <i class="ri-truck-fill"></i>
+                    <div class="action-text">
+                        <span>الاتصال بالمندوب</span>
+                        <span dir="ltr" class="phone-number">${order['رقم المندوب'] || 'غير متاح'}</span>
+                    </div>
+                </button>
+            </div>
+
+            <div class="info-banner">
+                <span>مرات الاتصال بالعميل (${callAttempts})</span>
+                <span class="val">${callStatusText}</span>
+            </div>
+
+            <div class="form-group">
+                <label>الحالة - العميل</label>
+                <select class="form-control" id="edit-client-status" onchange="handleStatusChange()">
+                    ${clientStatusOptions}
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>الحالة - الشحنه</label>
+                <select class="form-control" id="edit-shipment-status" onchange="handleStatusChange()">
+                    ${shipmentStatusOptions}
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>ملاحظة - العميل (حفظ تلقائي)</label>
+                <textarea class="form-control" id="edit-client-note" oninput="handleNoteChange('ملاحظة - العميل', this.value)">${order['ملاحظة - العميل'] || ''}</textarea>
+            </div>
+
+            <div class="form-group">
+                <label>ملاحظة - المندوب (حفظ تلقائي)</label>
+                <textarea class="form-control" id="edit-agent-note" oninput="handleNoteChange('ملاحظة - المندوب', this.value)">${order['ملاحظة - المندوب'] || ''}</textarea>
+            </div>
+
+            <button id="save-order-btn" class="btn-primary" style="width:100%; margin-top:1rem; display:flex; align-items:center; justify-content:center; gap:0.5rem;" onclick="saveOrder()">
+                <i class="ri-save-line"></i>
+                <span>تأكيد وحفظ يدوياً</span>
+            </button>
+        `;
+    }
+
+    elements.sheetBody.innerHTML = bodyHTML;
+
+    elements.bottomSheet.classList.add('active');
+    document.body.style.overflow = 'hidden'; 
+};
+
+const closeSheet = () => {
+    elements.bottomSheet.classList.remove('active');
+    document.body.style.overflow = '';
+    // تحديث الكروت بعد الإغلاق عشان تظهر التغييرات
+    renderDashboard();
+    state.currentOrder = null;
+};
+
+elements.closeSheetBtn.addEventListener('click', closeSheet);
+elements.sheetOverlay.addEventListener('click', closeSheet);
+
+// --- التفاعلات ---
+window.handleCall = (target, phone) => {
+    if (!state.currentOrder) return;
+    
+    if (phone && phone !== 'غير متاح' && phone.trim() !== '') {
+        window.location.href = 'tel:' + phone;
+    }
+    
+    state.currentOrder['التاريخ'] = getCurrentLibyaTime();
+    
+    if (target === 'customer') {
+        const currentAttempts = parseInt(state.currentOrder['عدد مرات الاتصال']) || 0;
+        state.currentOrder['عدد مرات الاتصال'] = currentAttempts + 1;
+        state.currentOrder['أكثر من 5 محاولات'] = (currentAttempts + 1 > 5) ? 'أكثر من 5' : '5 أو أقل';
+        
+        // تحديث عداد الاتصالات في الشيت المفتوح مباشرة بدون إعادة رسم
+        const bannerEl = elements.sheetBody.querySelector('.info-banner span:first-child');
+        if (bannerEl) {
+            const newCount = state.currentOrder['عدد مرات الاتصال'];
+            const newText = newCount > 5 ? "أكثر من 5 محاولات" : "5 أو أقل";
+            bannerEl.textContent = `مرات الاتصال بالعميل (${newCount})`;
+            const valEl = elements.sheetBody.querySelector('.info-banner .val');
+            if (valEl) valEl.textContent = newText;
+        }
+    }
+
+    saveOrder(true);
+    
+    // تحديث الكارت في الخلفية بدون إغلاق وإعادة فتح الشيت
+    const index = state.orders.findIndex(o => o.id === state.currentOrder.id);
+    if (index !== -1) {
+        state.orders[index] = JSON.parse(JSON.stringify(state.currentOrder));
+    }
+    renderDashboard();
+};
+
+window.handleStatusChange = () => {
+    if (!state.currentOrder) return;
+    
+    const newClientStatus = document.getElementById('edit-client-status').value;
+    const newShipmentStatus = document.getElementById('edit-shipment-status').value;
+    
+    let isChanged = false;
+    if (state.currentOrder['الحالة - العميل'] !== newClientStatus) {
+        state.currentOrder['الحالة - العميل'] = newClientStatus;
+        isChanged = true;
+    }
+    if (state.currentOrder['الحالة - الشحنه'] !== newShipmentStatus) {
+        state.currentOrder['الحالة - الشحنه'] = newShipmentStatus;
+        isChanged = true;
+    }
+    
+    if (isChanged) {
+        state.currentOrder['التاريخ'] = getCurrentLibyaTime();
+        
+        // تحديث الـ state المحلي بدون إعادة رسم الكروت (الشيت لسه مفتوح)
+        const index = state.orders.findIndex(o => o.id === state.currentOrder.id);
+        if (index !== -1) {
+            state.orders[index] = JSON.parse(JSON.stringify(state.currentOrder));
+        }
+        
+        saveOrder(true);
+    }
+};
+
+let noteTimeout;
+window.handleNoteChange = (noteType, value) => {
+    if (!state.currentOrder) return;
+    state.currentOrder[noteType] = value;
+    state.currentOrder['التاريخ'] = getCurrentLibyaTime();
+    
+    clearTimeout(noteTimeout);
+    noteTimeout = setTimeout(() => {
+        saveOrder(true);
+    }, 1200);
+};
+
+// قفل لمنع إرسال أكتر من حفظ واحد في نفس الوقت من نفس الجلسة
+let _isSaving = false;
+
+window.saveOrder = (isAutoSave = false) => {
+    if (!state.currentOrder) return;
+    
+    // لو في حفظ جاري، أجّل الحفظ التلقائي ولا تكرره
+    if (_isSaving) {
+        if (isAutoSave) return; // الحفظ التلقائي يتجاهل لو في حفظ شغّال
+    }
+    
+    _isSaving = true;
+    
+    const btn = document.getElementById('save-order-btn');
+    const msgEl = document.getElementById('save-status-msg');
+    
+    if (btn && !isAutoSave) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> <span>جاري الحفظ...</span>';
+    }
+
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+            .withSuccessHandler(function(success) {
+                _isSaving = false; // فتح القفل بعد ما الحفظ خلص
+                
+                if (btn && !isAutoSave) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="ri-save-line"></i> <span>تأكيد وحفظ يدوياً</span>';
+                }
+                
+                if (success) {
+                    // تحديث الحالة المحلية
+                    const index = state.orders.findIndex(o => o.id === state.currentOrder.id);
+                    if (index !== -1) {
+                        state.orders[index] = JSON.parse(JSON.stringify(state.currentOrder));
+                    }
+                    
+                    if (!isAutoSave && msgEl) {
+                        msgEl.innerHTML = `
+                            <div style="background:var(--accent-emerald); color:white; padding:12px 24px; border-radius:50px; box-shadow:var(--shadow-lg); display:inline-flex; align-items:center; gap:10px; animation: slideDown 0.4s ease-out, fadeOut 0.5s ease-in 2.5s forwards;">
+                                <i class="ri-checkbox-circle-fill" style="font-size:1.2rem;"></i> 
+                                <span>تم الحفظ بنجاح</span>
+                            </div>`;
+                        setTimeout(() => { if(msgEl.innerHTML.includes('الحفظ')) msgEl.innerHTML = ""; }, 3000);
+                    }
+                    renderDashboard();
+                }
+            })
+            .withFailureHandler(function(err) {
+                _isSaving = false; // فتح القفل حتى في حالة الخطأ
+                if (btn && !isAutoSave) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="ri-save-line"></i> <span>تأكيد وحفظ يدوياً</span>';
+                }
+            })
+            .updateOrderData(state.currentOrder);
+    } else {
+        _isSaving = false;
+    }
+};
+
+
+
+// ===============================
+// لوحة المدير - Admin Dashboard
+// ===============================
+function loadAdminDashboard() {
+    const el = document.getElementById('admin-content');
+    el.innerHTML = '<p style="text-align:center;color:var(--text-secondary);padding:2rem;"><i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; display: inline-block; vertical-align: middle; margin-left: 8px;"></i>جاري تحميل الإحصائيات...</p>';
+    
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+            .withSuccessHandler(function(data) {
+                if (!data.success) {
+                    el.innerHTML = `<div style="padding:2rem;color:#ef4444;text-align:center;"><i class="ri-error-warning-line" style="font-size: 1.5rem; display: inline-block; vertical-align: middle; margin-left: 8px;"></i>${data.message}</div>`;
+                    return;
+                }
+                state.lastAdminDashboardData = data; // حفظ البيانات للوصول إليها لاحقاً
+                renderAdminDashboard(data);
+            })
+            .withFailureHandler(function(err) {
+                el.innerHTML = `<div style="padding:2rem;color:#ef4444;text-align:center;"><i class="ri-wifi-off-line" style="font-size: 1.5rem; display: inline-block; vertical-align: middle; margin-left: 8px;"></i>خطأ في الاتصال: ${err.message}</div>`;
+            })
+            .getAdminDashboardData();
+    }
+}
+
+function renderAdminDashboard(d) {
+    const el = document.getElementById('admin-content');
+    try {
+        if (!d.statuses) d.statuses = [];
+        // ---- بطاقات الملخص (KPI) ----
+        const noAnswerCount = (d.statuses.find(s=>s.status==='لم يرد')||{count:0}).count;
+    
+    let html = `
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:20px;">
+        <div style="background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.3);border-radius:14px;padding:12px;text-align:center;">
+            <div style="font-size:1.5rem;font-weight:900;color:#60a5fa;display:flex;align-items:center;justify-content:center;gap:6px;">
+                <i class="ri-package-2-line"></i> ${d.totalOrders}
+            </div>
+            <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:4px;">إجمالي الطلبات</div>
+        </div>
+        <div style="background:rgba(139,92,246,0.15);border:1px solid rgba(139,92,246,0.3);border-radius:14px;padding:12px;text-align:center;">
+            <div style="font-size:1.5rem;font-weight:900;color:#a78bfa;display:flex;align-items:center;justify-content:center;gap:6px;">
+                <i class="ri-group-line"></i> ${d.employeeCount}
+            </div>
+            <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:4px;">الموظفات</div>
+        </div>
+        <div style="background:rgba(52,211,153,0.15);border:1px solid rgba(52,211,153,0.3);border-radius:14px;padding:12px;text-align:center;">
+            <div style="font-size:1.5rem;font-weight:900;color:#34d399;display:flex;align-items:center;justify-content:center;gap:6px;">
+                <i class="ri-checkbox-circle-line"></i> ${d.globalReady}
+            </div>
+            <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:4px;">رد ويستلم</div>
+        </div>
+        <div style="background:rgba(244,63,94,0.15);border:1px solid rgba(244,63,94,0.3);border-radius:14px;padding:12px;text-align:center;">
+            <div style="font-size:1.5rem;font-weight:900;color:#fb7185;display:flex;align-items:center;justify-content:center;gap:6px;">
+                <i class="ri-close-circle-line"></i> ${d.globalCancelled}
+            </div>
+            <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:4px;">إجمالي الغى</div>
+        </div>
+        <div style="background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);border-radius:14px;padding:12px;text-align:center;">
+            <div style="font-size:1.5rem;font-weight:900;color:#fbbf24;display:flex;align-items:center;justify-content:center;gap:6px;">
+                <i class="ri-store-2-line"></i> ${d.stores.length}
+            </div>
+            <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:4px;">المتاجر</div>
+        </div>
+        <div style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);border-radius:14px;padding:12px;text-align:center;">
+            <div style="font-size:1.5rem;font-weight:900;color:#f87171;display:flex;align-items:center;justify-content:center;gap:6px;">
+                <i class="ri-chat-delete-line"></i> ${noAnswerCount}
+            </div>
+            <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:4px;">لم يرد</div>
+        </div>
+    </div>`;
+
+    // ---- الموظفات ----
+    html += `<div style="margin-bottom:20px;">
+        <h3 style="color:var(--text-primary);font-size:1rem;font-weight:700;margin-bottom:12px;border-right:3px solid #60a5fa;padding-right:10px;display:flex;align-items:center;gap:6px;">
+            <i class="ri-user-settings-line"></i> أداء الموظفات
+        </h3>`;
+    
+    d.employees.forEach(emp => {
+        const statusList = Object.entries(emp.statuses).sort((a,b)=>b[1]-a[1]).map(([s,c])=>`<span style="background:rgba(255,255,255,0.08);border-radius:6px;padding:2px 6px;font-size:0.75rem;">${s}: ${c}</span>`).join(' ');
+        
+        html += `
+        <div style="background:var(--card-bg);border:1px solid var(--border-color);border-radius:14px;padding:14px;margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <span style="font-weight:700;color:var(--text-primary);font-size:1rem;display:flex;align-items:center;gap:6px;">
+                    <i class="ri-user-3-line"></i> ${emp.name}
+                </span>
+                <span style="background:rgba(59,130,246,0.2);color:#60a5fa;border-radius:8px;padding:4px 10px;font-weight:800;font-size:1.1rem;">${emp.orders}</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;font-size:0.8rem;color:var(--text-secondary);">
+                <div><i class="ri-login-box-line"></i> الحضور: <strong style="color:var(--text-primary);">${emp.firstOrder}</strong></div>
+                <div><i class="ri-history-line"></i> آخر طلبية: <strong style="color:var(--text-primary);">${emp.lastOrder}</strong></div>
+                <div><i class="ri-timer-line"></i> موقفة منذ: <strong style="color:#fbbf24;">${emp.duration}</strong></div>
+                <div><i class="ri-close-circle-line"></i> لم يرد: <strong style="color:#f87171;">${emp.noAnswerTotal}</strong> | <i class="ri-phone-line"></i> المتوسط: <strong style="color:#fbbf24;">${emp.avgNoAnswerTries}</strong></div>
+            </div>
+            
+            <!-- إحصائيات المعلق والانتظار (قابلة للضغط) -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;padding:8px;background:rgba(255,255,255,0.05);border-radius:10px;border:1px dashed rgba(255,255,255,0.1);">
+                <div style="text-align:center; cursor:pointer;" onclick="showAdminOrderList('pending', '${emp.name}')">
+                    <div style="font-weight:800;color:#f87171;font-size:1rem;display:flex;align-items:center;justify-content:center;gap:4px;">
+                        <i class="ri-time-line"></i> ${emp.pendingOrders}
+                    </div>
+                    <div style="font-size:0.7rem;color:var(--text-secondary);">طلبات لم تُفتح</div>
+                </div>
+                <div style="text-align:center; cursor:pointer;" onclick="showAdminOrderList('ready', '${emp.name}')">
+                    <div style="font-weight:800;color:#34d399;font-size:1rem;display:flex;align-items:center;justify-content:center;gap:4px;">
+                        <i class="ri-truck-line"></i> ${emp.readyPendingShipment}
+                    </div>
+                    <div style="font-size:0.7rem;color:var(--text-secondary);">بانتظار الشحن</div>
+                </div>
+            </div>
+
+            <div style="display:flex;flex-wrap:wrap;gap:4px;">${statusList}</div>
+        </div>`;
+    });
+    html += `</div>`;
+
+    // ---- المتاجر ----
+    html += `<div style="margin-bottom:20px;">
+        <h3 style="color:var(--text-primary);font-size:1rem;font-weight:700;margin-bottom:12px;border-right:3px solid #fbbf24;padding-right:10px;display:flex;align-items:center;gap:6px;">
+            <i class="ri-store-2-line"></i> إجمالي المتاجر
+        </h3>
+        <div style="background:var(--card-bg);border:1px solid var(--border-color);border-radius:14px;overflow:hidden;">`;
+    
+    const barColors = ['#60a5fa','#a78bfa','#fbbf24','#34d399','#f87171','#f472b6','#38bdf8'];
+    d.stores.forEach((s, i) => {
+        const pct = d.totalOrders > 0 ? Math.round(s.count / d.totalOrders * 100) : 0;
+        const clr = barColors[i % barColors.length];
+        html += `<div style="padding:12px 14px;border-bottom:1px solid var(--border-color);">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:5px;">
+                <div>
+                    <div style="font-size:0.95rem;color:var(--text-primary);font-weight:700;">${s.store}</div>
+                    <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:2px;">
+                        <i class="ri-checkbox-circle-line" style="color:#34d399;"></i> رد ويستلم: <strong style="color:#34d399;">${s.ready}</strong> (${s.readyPct}%)
+                    </div>
+                </div>
+                <div style="font-weight:800;color:${clr};font-size:1rem;">${s.count} <small style="font-weight:500;color:var(--text-secondary);font-size:0.7rem;">(${pct}%)</small></div>
+            </div>
+            <div style="background:rgba(255,255,255,0.08);border-radius:10px;height:6px;margin-top:8px;">
+                <div style="background:${clr};width:${pct}%;height:100%;border-radius:10px;"></div>
+            </div></div>`;
+    });
+
+    html += `</div></div>`;
+
+    // ---- الحالات ----
+    html += `<div style="margin-bottom:20px;">
+        <h3 style="color:var(--text-primary);font-size:1rem;font-weight:700;margin-bottom:12px;border-right:3px solid #34d399;padding-right:10px;display:flex;align-items:center;gap:6px;">
+            <i class="ri-bar-chart-fill"></i> نسب الحالات
+        </h3>
+        <div style="background:var(--card-bg);border:1px solid var(--border-color);border-radius:14px;overflow:hidden;">`;
+    
+    const statusColors = {'لم يرد':'#f87171','بدون حالة':'#94a3b8'};
+    d.statuses.forEach((s, i) => {
+        const clr = statusColors[s.status] || barColors[i % barColors.length];
+        html += `<div style="padding:10px 14px;border-bottom:1px solid var(--border-color);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+                <span style="font-size:0.9rem;color:var(--text-primary);font-weight:600;">${s.status}</span>
+                <span style="font-weight:800;color:${clr};">${s.count} <small style="font-weight:500;color:var(--text-secondary);">(${s.pct}%)</small></span>
+            </div>
+            <div style="background:rgba(255,255,255,0.08);border-radius:10px;height:6px;">
+                <div style="background:${clr};width:${s.pct}%;height:100%;border-radius:10px;"></div>
+            </div></div>`;
+    });
+    html += `</div></div>`;
+
+    el.innerHTML = html;
+    } catch (err) {
+        console.error("Error rendering dashboard:", err);
+        el.innerHTML = `<div style="padding:2rem;color:#ef4444;text-align:center;"><i class="ri-error-warning-line" style="font-size: 1.5rem; display: inline-block; vertical-align: middle; margin-left: 8px;"></i>حدث خطأ أثناء عرض البيانات: ${err.message}</div>`;
+    }
+}
+
+// التبديل بين تبويبات المدير
+function switchAdminTab(tab) {
+    const tabs = ['stats', 'stores', 'all', 'search', 'followup', 'distribution'];
+    const activeStyle = 'linear-gradient(135deg,#3b82f6,#8b5cf6)';
+    const inactiveBg = 'var(--bg-card)';
+    
+    tabs.forEach(t => {
+        const btn = document.getElementById(`admin-tab-${t}`);
+        let contentId = '';
+        if (t === 'stats') contentId = 'admin-content';
+        else if (t === 'search') contentId = 'admin-search-results';
+        else if (t === 'all') contentId = 'admin-all-orders-content';
+        else if (t === 'followup') contentId = 'admin-followup-monitor-content';
+        else contentId = `admin-${t}-content`;
+
+        const content = document.getElementById(contentId);
+        if (!btn || !content) return;
+        
+        // دعم لاسم التبويب القديم والجديد لضمان التوافق
+        if (t === tab || (tab === 'followup_monitor' && t === 'followup')) {
+            btn.style.background = activeStyle;
+            btn.style.color = 'white';
+            btn.style.border = 'none';
+            content.style.display = 'block';
+            
+            if (t === 'stores') renderAdminStores();
+            if (t === 'all') renderAdminAllOrders();
+            if (t === 'followup') renderAdminFollowUpMonitor();
+            if (t === 'distribution') renderDistributionOrders();
+        } else {
+            btn.style.background = inactiveBg;
+            btn.style.color = 'var(--text-secondary)';
+            btn.style.border = '1px solid var(--border-color)';
+            content.style.display = 'none';
+        }
+    });
+}
+
+function renderAdminFollowUpMonitor() {
+    const data = state.lastAdminDashboardData;
+    const el = document.getElementById('admin-followup-monitor-content');
+    if (!data || !data.followUpStats || data.followUpStats.length === 0) {
+        el.innerHTML = '<p style="text-align:center; color:var(--text-secondary); padding:2rem;">لا توجد بيانات متابعة حالياً في شيت "طلبات تحتاج متابعه".</p>';
+        return;
+    }
+
+    let html = `
+    <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:14px; padding:15px; margin-bottom:20px;">
+        <h3 style="font-size:1.1rem; color:var(--accent-indigo); margin-bottom:15px; display:flex; align-items:center; gap:8px;">
+            <i class="ri-history-line"></i> مراقبة أداء المتاجر في المتابعة
+        </h3>
+        <div style="overflow-x:auto;">
+            <table style="width:100%; border-collapse:collapse; font-size:0.9rem; text-align:right;">
+                <thead>
+                    <tr style="border-bottom:1px solid var(--border-color);">
+                        <th style="padding:10px; color:var(--text-secondary);">المتجر</th>
+                        <th style="padding:10px; color:var(--accent-emerald); text-align:center;">تم الإنجاز</th>
+                        <th style="padding:10px; color:var(--accent-rose); text-align:center;">المتبقي</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+    data.followUpStats.forEach(s => {
+        html += `
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.02);">
+            <td style="padding:12px 10px; font-weight:700; color:var(--text-primary);">${s.store}</td>
+            <td style="padding:10px; text-align:center;">
+                <span onclick="showFollowUpDetails('${s.store}', 'done')" style="background:rgba(16,185,129,0.15); color:var(--accent-emerald); padding:4px 12px; border-radius:20px; font-weight:800; cursor:pointer; display:inline-block; transition:all 0.2s;" onmouseover="this.style.background='var(--accent-emerald)'; this.style.color='white';" onmouseout="this.style.background='rgba(16,185,129,0.15)'; this.style.color='var(--accent-emerald)';">
+                    ${s.done}
+                </span>
+            </td>
+            <td style="padding:10px; text-align:center;">
+                <span onclick="showFollowUpDetails('${s.store}', 'pending')" style="background:rgba(244,63,94,0.15); color:var(--accent-rose); padding:4px 12px; border-radius:20px; font-weight:800; cursor:pointer; display:inline-block; transition:all 0.2s;" onmouseover="this.style.background='var(--accent-rose)'; this.style.color='white';" onmouseout="this.style.background='rgba(244,63,94,0.15)'; this.style.color='var(--accent-rose)';">
+                    ${s.pending}
+                </span>
+            </td>
+        </tr>`;
+    });
+
+    html += `</tbody></table></div></div>
+    <div id="fu-details-container" style="display:none; background:var(--bg-card); border:1px solid var(--accent-indigo); border-radius:14px; padding:15px; animation: slideDown 0.3s ease-out; box-shadow: var(--shadow-lg);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid var(--border-color); padding-bottom:10px;">
+            <h4 id="fu-details-title" style="font-size:1rem; color:var(--text-primary);">تفاصيل الحالات</h4>
+            <button onclick="document.getElementById('fu-details-container').style.display='none'" style="background:none; border:none; color:var(--text-secondary); cursor:pointer;"><i class="ri-close-line" style="font-size:1.2rem;"></i></button>
+        </div>
+        <div id="fu-details-body" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:10px;"></div>
+    </div>`;
+
+    el.innerHTML = html;
+}
+
+window.showFollowUpDetails = (storeName, type) => {
+    const data = state.lastAdminDashboardData;
+    const stats = data.followUpStats.find(s => s.store === storeName);
+    if (!stats) return;
+
+    const details = type === 'done' ? stats.doneDetails : stats.pendingDetails;
+    const container = document.getElementById('fu-details-container');
+    const title = document.getElementById('fu-details-title');
+    const body = document.getElementById('fu-details-body');
+
+    title.innerHTML = `تفاصيل المتابعة - ${storeName} (<span style="color:${type === 'done' ? 'var(--accent-emerald)' : 'var(--accent-rose)'}">${type === 'done' ? 'تم الإنجاز' : 'المتبقي'}</span>)`;
+    
+    let bodyHTML = '';
+    const entries = Object.entries(details).sort((a, b) => b[1] - a[1]);
+    
+    if (entries.length === 0) {
+        bodyHTML = '<p style="grid-column: 1/-1; text-align:center; color:var(--text-secondary);">لا توجد بيانات مفصلة.</p>';
+    } else {
+        entries.forEach(([status, count]) => {
+            bodyHTML += `
+            <div style="background:rgba(255,255,255,0.03); padding:10px; border-radius:10px; border:1px solid var(--border-color); text-align:center;">
+                <div style="font-size:0.75rem; color:var(--text-secondary); margin-bottom:4px;">${status}</div>
+                <div style="font-weight:800; color:var(--text-primary); font-size:1.1rem;">${count}</div>
+            </div>`;
+        });
+    }
+
+    body.innerHTML = bodyHTML;
+    container.style.display = 'block';
+    container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+};
+
+// مراقبة المتاجر للمديرة
+function renderAdminStores() {
+    const data = state.lastAdminDashboardData;
+    const el = document.getElementById('admin-stores-content');
+    if (!data || !data.stores) {
+        el.innerHTML = '<p style="text-align:center;padding:2rem;color:var(--text-secondary);"><i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; display: inline-block; vertical-align: middle; margin-left: 8px;"></i>جاري تحميل البيانات...</p>';
+        return;
+    }
+
+    let html = `<h3 style="color:var(--text-primary);font-size:1.1rem;margin-bottom:15px;display:flex;align-items:center;gap:8px;">
+        <i class="ri-radar-line" style="color:#60a5fa;"></i> مراقبة تبليغات المتاجر
+    </h3>`;
+    const getBadge = (label, count, activeColor) => {
+        // إخفاء الفئة إذا لم يكن فيها طلبات
+        if (!count || count === 0) return '';
+        
+        if (count > 0) {
+            return `<span style="padding:3px 8px; border-radius:12px; background:rgba(255,255,255,0.05); color:${activeColor}; border:1px solid ${activeColor}; font-weight:800; font-size:0.7rem;">${label}: ${count}</span>`;
+        }
+        return `<span style="padding:3px 8px; border-radius:12px; background:rgba(16,185,129,0.05); color:var(--accent-emerald); border:1px solid rgba(16,185,129,0.2); font-size:0.7rem;">${label}: ${count}</span>`;
+    };
+
+    data.stores.forEach(s => {
+        // حساب إجمالي الطلبات (تم + لم يتم + متبقي)
+        const totalStoreOrders = (s.done || 0) + (s.notDone || 0) + (s.pending || 0);
+        
+        // بناء badges الفئات
+        const badges = [
+            getBadge('عادي', s.pendingNormal, '#94a3b8'),
+            getBadge('مرتجع', s.pendingReturned, 'var(--accent-rose)'),
+            getBadge('مؤجل', s.pendingPostponed, 'var(--accent-amber)'),
+            getBadge('استبدال', s.pendingExchange, 'var(--accent-emerald)')
+        ].filter(b => b !== '').join('');
+        
+        // إخفاء صندوق الفئات إذا لم يكن هناك أي فئات
+        const categoriesSection = badges ? `
+            <div style="display:flex; justify-content:space-around; align-items:center; flex-wrap:wrap; gap:5px; padding: 6px; background:rgba(255,255,255,0.02); border-radius:8px; margin-bottom:8px;">
+                ${badges}
+            </div>` : '';
+        
+        html += `
+        <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:14px; padding:15px; margin-bottom:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <span style="font-weight:800; font-size:1.1rem; color:var(--text-primary);">${s.store}</span>
+                <span style="background:rgba(99,102,241,0.1); color:var(--accent-indigo); padding:4px 10px; border-radius:8px; font-size:0.8rem; font-weight:700;">${totalStoreOrders} طلب إجمالي</span>
+            </div>
+            
+            <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; margin-bottom:12px;">
+                <div style="text-align:center; padding:8px; background:rgba(16,185,129,0.08); border-radius:10px; border:1px solid rgba(16,185,129,0.1);">
+                    <div style="color:var(--accent-emerald); font-weight:800; font-size:1.1rem;">${s.done || 0}</div>
+                    <div style="font-size:0.65rem; color:var(--text-secondary);">تم التبليغ</div>
+                </div>
+                <div style="text-align:center; padding:8px; background:rgba(244,63,94,0.08); border-radius:10px; border:1px solid rgba(244,63,94,0.1);">
+                    <div style="color:var(--accent-rose); font-weight:800; font-size:1.1rem;">${s.notDone || 0}</div>
+                    <div style="font-size:0.65rem; color:var(--text-secondary);">لم يتم</div>
+                </div>
+                <div style="text-align:center; padding:8px; background:rgba(245,158,11,0.08); border-radius:10px; border:1px solid rgba(245,158,11,0.1);">
+                    <div style="color:var(--accent-amber); font-weight:800; font-size:1.1rem;">${s.pending || 0}</div>
+                    <div style="font-size:0.65rem; color:var(--text-secondary);">متبقي</div>
+                </div>
+            </div>
+
+            ${categoriesSection}
+            
+            <div style="background:rgba(255,255,255,0.03); padding:8px 12px; border-radius:8px; border-right:3px solid var(--accent-rose); display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:0.75rem; color:var(--text-secondary);"><i class="ri-time-line"></i> أقدم طلبية متبقية:</span>
+                <span style="font-size:0.8rem; color:var(--accent-rose); font-weight:700;">${s.oldestStr || '—'}</span>
+            </div>
+        </div>`;
+    });
+    el.innerHTML = html;
+}
+
+// عرض كل الطلبيات مع الفلترة
+function renderAdminAllOrders() {
+    const data = state.lastAdminDashboardData;
+    const el = document.getElementById('admin-all-orders-content');
+    if (!data || !data.allOrders) return;
+
+    const employees = [...new Set(data.allOrders.map(o => o["الاسم"]))];
+    const stores = [...new Set(data.allOrders.map(o => o["المتجر"]))];
+    const statuses = [...new Set(data.allOrders.map(o => o["الحالة - العميل"]))].filter(Boolean);
+
+    let html = `
+    <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:14px; padding:15px; margin-bottom:20px;">
+        <h4 style="margin-bottom:12px; font-size:0.9rem; color:var(--text-primary);"><i class="ri-filter-3-line"></i> فلاتر العرض</h4>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+            <select id="filter-admin-store" class="form-control" onchange="applyAdminFilters()" style="font-size:0.8rem; padding:8px;">
+                <option value="">كل المتاجر</option>
+                ${stores.map(s => `<option value="${s}">${s}</option>`).join('')}
+            </select>
+            <select id="filter-admin-emp" class="form-control" onchange="applyAdminFilters()" style="font-size:0.8rem; padding:8px;">
+                <option value="">كل الموظفات</option>
+                ${employees.map(e => `<option value="${e}">${e}</option>`).join('')}
+            </select>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+            <select id="filter-admin-status" class="form-control" onchange="applyAdminFilters()" style="font-size:0.8rem; padding:8px;">
+                <option value="">كل حالات العملاء</option>
+                ${statuses.map(s => `<option value="${s}">${s}</option>`).join('')}
+            </select>
+            <select id="filter-admin-note" class="form-control" onchange="applyAdminFilters()" style="font-size:0.8rem; padding:8px;">
+                <option value="">كل ملاحظات الإدارة</option>
+                <option value="NORMAL">تبليغ عادي (بدون ملاحظة)</option>
+                <option value="مرتجع">مرتجع</option>
+                <option value="مؤجل">مؤجل</option>
+                <option value="T2">T2</option>
+            </select>
+        </div>
+    </div>
+    <div id="admin-filtered-list"></div>`;
+    
+    el.innerHTML = html;
+    applyAdminFilters(); // العرض الأولي
+}
+
+function applyAdminFilters(limit) {
+    limit = typeof limit === 'number' ? limit : 50;
+    const data = state.lastAdminDashboardData;
+    if (!data || !data.allOrders) return;
+
+    const elStore = document.getElementById('filter-admin-store');
+    const elEmp = document.getElementById('filter-admin-emp');
+    const elStatus = document.getElementById('filter-admin-status');
+    const elNote = document.getElementById('filter-admin-note');
+    const listEl = document.getElementById('admin-filtered-list');
+
+    if (!elStore || !elEmp || !elStatus || !elNote || !listEl) return;
+
+    const storeVal = elStore.value;
+    const empVal = elEmp.value;
+    const statusVal = elStatus.value;
+    const noteVal = elNote.value;
+
+    let filtered = data.allOrders;
+    if (storeVal) filtered = filtered.filter(o => o["المتجر"] === storeVal);
+    if (empVal) filtered = filtered.filter(o => o["الاسم"] === empVal);
+    if (statusVal) filtered = filtered.filter(o => o["الحالة - العميل"] === statusVal);
+    
+    if (noteVal) {
+        if (noteVal === 'NORMAL') {
+            filtered = filtered.filter(o => !o["ملاحظة"] || o["ملاحظة"].trim() === '');
+        } else {
+            filtered = filtered.filter(o => (o["ملاحظة"] || '').includes(noteVal));
+        }
+    }
+
+    if (filtered.length === 0) {
+        listEl.innerHTML = '<p style="text-align:center;padding:2rem;color:var(--text-secondary);">لا توجد نتائج تطابق الفلاتر.</p>';
+        return;
+    }
+
+    let html = `<p style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:10px;">تم العثور على ${filtered.length} طلبية${filtered.length > limit ? ' (عرض أول ' + limit + ')' : ''}:</p>`;
+    
+    const displayed = filtered.slice(0, limit);
+    displayed.forEach(o => {
+        const reportStatus = o["تبليغ المسؤول"];
+        const statusClr = reportStatus === 'تم' ? 'var(--accent-emerald)' : (reportStatus === 'لم يتم' ? 'var(--accent-rose)' : 'var(--text-secondary)');
+        
+        html += `
+        <div class="order-card" style="margin-bottom:12px; border-right: 4px solid ${statusClr};">
+            <div style="display:flex; justify-content:flex-end; padding: 6px 12px; border-bottom: 1px solid var(--border-color); background: rgba(255,255,255,0.02);">
+                <button style="background: var(--accent-indigo-light); color: var(--accent-indigo); padding: 4px 10px; font-size: 0.65rem; border-radius: 20px; border: 1px solid rgba(99,102,241,0.2); font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.2s;" 
+                        onclick="copyFullOrderDetails('${o.id}', event, true)"
+                        onmouseover="this.style.background='var(--accent-indigo)'; this.style.color='white';"
+                        onmouseout="this.style.background='var(--accent-indigo-light)'; this.style.color='var(--accent-indigo)';"
+                >
+                    <i class="ri-file-copy-2-line" style="font-size: 0.85rem;"></i> نسخ البيانات
+                </button>
+            </div>
+            <div class="order-card-body" style="padding:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
+                    <div>
+                        <div style="font-weight:800; font-size:1rem; color:var(--text-primary); cursor:pointer;" onclick="copyText('${o["كود الطلب"]}')" title="نسخ الكود">
+                            ${o["كود الطلب"] || 'بدون كود'} <i class="ri-file-copy-line" style="font-size:0.85rem; color:var(--accent-indigo);"></i>
+                        </div>
+                        <div style="font-size:0.75rem; color:var(--text-secondary); margin-top:2px;">
+                            <i class="ri-user-3-line"></i> ${o["الاسم"]} | <i class="ri-store-2-line"></i> ${o["المتجر"]}
+                        </div>
+                    </div>
+                    <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
+                        <span class="status-badge indigo" style="font-size:0.7rem;">${o["الحالة - العميل"] || 'بدون حالة'}</span>
+                        <span class="status-badge amber" style="font-size:0.7rem; padding: 2px 6px;">${o["الحالة - الشحنه"] || 'لم تحدد'}</span>
+                    </div>
+                </div>
+                
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:0.75rem; margin-bottom:8px; background:rgba(255,255,255,0.02); padding:8px; border-radius:8px;">
+                    <div><span style="color:var(--text-secondary);">العميل:</span> <span dir="ltr" style="cursor:pointer; color:var(--text-primary); text-decoration:underline;" onclick="copyText('${o["رقم العميل"]}')" title="نسخ رقم العميل">${o["رقم العميل"] || '-'} <i class="ri-file-copy-line" style="font-size:0.7rem;"></i></span></div>
+                    <div><span style="color:var(--text-secondary);">المندوب:</span> <span dir="ltr" style="cursor:pointer; color:var(--text-primary); text-decoration:underline;" onclick="copyText('${o["رقم المندوب"]}')" title="نسخ رقم المندوب">${o["رقم المندوب"] || '-'} <i class="ri-file-copy-line" style="font-size:0.7rem;"></i></span></div>
+                    <div><span style="color:var(--text-secondary);">المنتج:</span> ${o["اسم المنتج"] || '-'}</div>
+                    <div><span style="color:var(--text-secondary);">السعر:</span> <span style="color:var(--accent-emerald);">${o["السعر"] || '-'}</span></div>
+                    <div style="grid-column: span 2;"><span style="color:var(--text-secondary);">ملاحظة المدير:</span> ${o["ملاحظة"] || '-'}</div>
+                    <div style="grid-column: span 2;"><span style="color:var(--text-secondary);">ملاحظة الموظفة (عميل):</span> <span style="color:var(--accent-indigo);">${o["ملاحظة - العميل"] || '-'}</span></div>
+                    <div style="grid-column: span 2;"><span style="color:var(--text-secondary);">ملاحظة الموظفة (مندوب):</span> <span style="color:var(--accent-indigo);">${o["ملاحظة - المندوب"] || '-'}</span></div>
+                </div>
+
+                <div style="display:flex; justify-content:space-between; align-items:center; padding-top:8px; border-top:1px dashed var(--border-color); flex-wrap:wrap; gap:8px;">
+                    <div style="font-size:0.75rem;">
+                        <span style="color:var(--text-secondary);">تبليغ المسؤول:</span> 
+                        <strong style="color:${statusClr};">${reportStatus || 'متبقي'}</strong>
+                    </div>
+                    <div style="font-size:0.75rem; color:var(--text-secondary);">${o["التاريخ"]}</div>
+                </div>
+                ${o["ملاحظه المسؤول"] ? `<div style="font-size:0.75rem; margin-top:5px; padding:6px; background:rgba(96,165,250,0.05); border-radius:6px; color:#60a5fa;"><i class="ri-chat-1-line"></i> ملاحظة المسؤول: ${o["ملاحظه المسؤول"]}</div>` : ''}
+            </div>
+        </div>`;
+    });
+    
+    if (filtered.length > limit) {
+        html += `<button class="btn-primary" style="width:100%; margin-top:15px; padding:12px; text-align:center; font-weight:bold; display:flex; justify-content:center; align-items:center; gap:8px;" onclick="applyAdminFilters(${limit + 50})"><i class="ri-arrow-down-line"></i> عرض المزيد (${filtered.length - limit} متبقي)</button>`;
+    }
+    
+    listEl.innerHTML = html;
+}
+
+// معالجة البحث للمدير
+let adminSearchTimeout;
+document.getElementById('admin-search-input').addEventListener('input', function(e) {
+    const query = e.target.value.trim();
+    
+    // التبديل لتبويب البحث تلقائياً عند الكتابة
+    if (query.length > 0) {
+        switchAdminTab('search');
+    }
+
+    clearTimeout(adminSearchTimeout);
+    adminSearchTimeout = setTimeout(() => {
+        if (query.length < 2) {
+            document.getElementById('admin-search-results').innerHTML = '<p style="text-align:center;color:var(--text-secondary);padding:2rem;"><i class="ri-search-eye-line" style="font-size: 2rem; display: block; margin-bottom: 10px;"></i>اكتب كود الطلب أو رقم العميل للبحث</p>';
+            return;
+        }
+        
+        document.getElementById('admin-search-results').innerHTML = '<p style="text-align:center;color:var(--text-secondary);padding:2rem;"><i class="ri-loader-4-line ri-spin" style="font-size: 2rem; display: block; margin-bottom: 10px;"></i>جاري البحث...</p>';
+        
+        google.script.run
+            .withSuccessHandler(function(data) {
+                if (!data.success) {
+                    document.getElementById('admin-search-results').innerHTML = `<p style="text-align:center;color:#ef4444;padding:2rem;"><i class="ri-error-warning-line" style="font-size: 2rem; display: block; margin-bottom: 10px;"></i>${data.message}</p>`;
+                    return;
+                }
+                state.lastAdminSearchResults = data.results; // حفظ النتائج للنسخ
+                renderAdminSearchResults(data.results);
+            })
+            .withFailureHandler(function(err) {
+                document.getElementById('admin-search-results').innerHTML = `<p style="text-align:center;color:#ef4444;padding:2rem;"><i class="ri-wifi-off-line" style="font-size: 2rem; display: block; margin-bottom: 10px;"></i>خطأ في الاتصال: ${err.message}</p>`;
+            })
+            .adminSearchOrders(query);
+    }, 500);
+});
+
+function renderAdminSearchResults(results) {
+    const el = document.getElementById('admin-search-results');
+    if (results.length === 0) {
+        el.innerHTML = '<p style="text-align:center;color:var(--text-secondary);padding:2rem;"><i class="ri-ghost-line" style="font-size: 2rem; display: block; margin-bottom: 10px;"></i>لم يتم العثور على نتائج</p>';
+        return;
+    }
+
+    let html = `<div style="padding:10px;"><p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:12px;"><i class="ri-list-check" style="vertical-align: middle; margin-left: 4px;"></i>تم العثور على ${results.length} نتيجة:</p>`;
+    
+    results.forEach(order => {
+        html += `
+        <div class="order-card" style="margin-bottom:12px;cursor:default;">
+            <div style="display:flex; justify-content:flex-end; padding: 6px 12px; border-bottom: 1px solid var(--border-color); background: rgba(255,255,255,0.02); gap: 8px;">
+                <button style="background: var(--accent-indigo-light); color: var(--accent-indigo); padding: 4px 10px; font-size: 0.65rem; border-radius: 20px; border: 1px solid rgba(99,102,241,0.2); font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.2s;" 
+                        onclick="copyFullOrderDetails('${order.id}', event, true)"
+                        onmouseover="this.style.background='var(--accent-indigo)'; this.style.color='white';"
+                        onmouseout="this.style.background='var(--accent-indigo-light)'; this.style.color='var(--accent-indigo)';"
+                >
+                    <i class="ri-file-copy-2-line" style="font-size: 0.85rem;"></i> نسخ البيانات
+                </button>
+                <button style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; padding: 4px 10px; font-size: 0.65rem; border-radius: 20px; border: 1px solid rgba(245,158,11,0.2); font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.2s;" 
+                        onclick="openAdminEditModal('${order.id}')"
+                        onmouseover="this.style.background='#f59e0b'; this.style.color='white';"
+                        onmouseout="this.style.background='rgba(245, 158, 11, 0.1)'; this.style.color='#f59e0b';"
+                        title="${order.isHistorical ? 'تعديل الطلبية الأرشيفية' : 'تعديل الطلبية'}"
+                >
+                    <i class="ri-edit-line" style="font-size: 0.85rem;"></i> تعديل ${order.isHistorical ? '(أرشيف)' : ''}
+                </button>
+            </div>
+            <div class="order-card-body">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+                    <div>
+                        <div style="font-weight:800;font-size:1.1rem;color:var(--text-primary); display:flex; align-items:center; flex-wrap:wrap; gap:6px;">
+                            <i class="ri-barcode-box-line" style="vertical-align: middle;"></i> ${order['كود الطلب'] || 'بدون كود'}
+                            ${order.isHistorical ? `<span style="background: linear-gradient(135deg, #f59e0b, #d97706); color: white; font-size: 0.65rem; padding: 2px 8px; border-radius: 20px; font-weight: 800; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-archive-line"></i> أرشيف / تراكمي</span>` : ''}
+                        </div>
+                        <div style="font-size:0.85rem;color:var(--text-secondary);margin-top:2px;"><i class="ri-user-star-line"></i> الموظفة: <strong style="color:var(--text-primary);">${order['الاسم']}</strong></div>
+                    </div>
+                    <span class="status-badge indigo"><i class="ri-store-2-line"></i> ${order['المتجر'] || 'بدون متجر'}</span>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:0.85rem;">
+                    <div><i class="ri-smartphone-line"></i> العميل: <span dir="ltr" style="color:var(--text-primary);font-weight:600;">${order['رقم العميل'] || '-'}</span></div>
+                    <div><i class="ri-truck-line"></i> المندوب: <span dir="ltr" style="color:var(--text-primary);font-weight:600;">${order['رقم المندوب'] || '-'}</span></div>
+                    <div><i class="ri-shopping-bag-line"></i> المنتج: <span style="color:var(--text-primary);font-weight:600;">${order['اسم المنتج'] || '-'}</span></div>
+                    <div><i class="ri-money-dollar-circle-line"></i> السعر: <span style="color:var(--accent-emerald);font-weight:700;">${order['السعر'] || '-'}</span></div>
+                    <div style="grid-column: span 2;"><i class="ri-sticky-note-line"></i> ملاحظة المدير: <span style="color:var(--text-primary);">${order['ملاحظة'] || '-'}</span></div>
+                    <div style="grid-column: span 2;"><i class="ri-chat-4-line"></i> ملاحظة الموظفة (عميل): <span style="color:var(--accent-indigo);">${order['ملاحظة - العميل'] || '-'}</span></div>
+                    <div style="grid-column: span 2;"><i class="ri-chat-1-line"></i> ملاحظة الموظفة (مندوب): <span style="color:var(--accent-indigo);">${order['ملاحظة - المندوب'] || '-'}</span></div>
+                    
+                    <div style="grid-column: span 2;border-top:1px solid var(--border-color);padding-top:8px;margin-top:4px;">
+                        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                            <span style="color:var(--text-secondary);"><i class="ri-information-line"></i> حالة العميل:</span>
+                            <span class="status-badge amber">${order['الحالة - العميل'] || 'لم يحدد'}</span>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:8px;background:rgba(99,102,241,0.05);padding:8px;border-radius:10px;border:1px solid rgba(99,102,241,0.1);">
+                            <span style="color:var(--text-secondary);font-weight:600;"><i class="ri-truck-line"></i> حالة الشحنة:</span>
+                            <span class="status-badge indigo" style="font-size:0.85rem;padding:4px 12px;">${order['الحالة - الشحنه'] || 'لم تحدد'}</span>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;">
+                            <span style="color:var(--text-secondary);"><i class="ri-time-line"></i> آخر تحديث:</span>
+                            <span style="color:var(--text-primary);font-size:0.8rem;">${order['التاريخ'] || '-'}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    });
+    
+    html += `</div>`;
+    el.innerHTML = html;
+}
+
+// دالة فتح قائمة الطلبات للمدير
+window.showAdminOrderList = (type, employeeName) => {
+    const data = window.state.lastAdminDashboardData;
+    if (!data) return;
+    
+    const emp = data.employees.find(e => e.name === employeeName);
+    if (!emp) return;
+    
+    const list = type === 'pending' ? emp.pendingOrdersList : emp.readyShipmentList;
+    const title = type === 'pending' ? `طلبات لم تفتح - ${employeeName}` : `بانتظار الشحن - ${employeeName}`;
+    
+    document.getElementById('admin-list-title').textContent = title;
+    const body = document.getElementById('admin-list-body');
+    
+    if (!list || list.length === 0) {
+        body.innerHTML = '<p style="text-align:center; color:var(--text-secondary); padding:20px;">لا توجد بيانات متاحة.</p>';
+    } else {
+        let html = '';
+        list.forEach((item, index) => {
+            html += `
+            <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; padding:12px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; font-size:0.85rem;">
+                <div style="flex:1;">
+                    <div style="font-weight:800; color:var(--text-primary); margin-bottom:4px;">
+                        <i class="ri-barcode-box-line"></i> ${item.code || 'بدون كود'} 
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:5px; margin-bottom:4px;">
+                        <span style="color:var(--text-secondary); font-size:0.75rem;">
+                            <i class="ri-smartphone-line"></i> عميل: <span dir="ltr" style="color:var(--text-primary);">${item.phone || '-'}</span>
+                        </span>
+                        <span style="color:var(--text-secondary); font-size:0.75rem;">
+                            <i class="ri-truck-line"></i> مندوب: <span dir="ltr" style="color:var(--text-primary);">${item.rep || '-'}</span>
+                        </span>
+                        <span style="color:var(--text-secondary); font-size:0.75rem;">
+                            <i class="ri-shopping-bag-line"></i> منتج: <span style="color:var(--text-primary);">${item.product || '-'}</span>
+                        </span>
+                        <span style="color:var(--text-secondary); font-size:0.75rem;">
+                            <i class="ri-money-dollar-circle-line"></i> سعر: <span style="color:var(--accent-emerald);">${item.price || '-'}</span>
+                        </span>
+                    </div>
+                    <div style="color:var(--text-secondary); font-size:0.8rem; margin-bottom:4px;">
+                        <i class="ri-store-2-line"></i> ${item.store} | <span style="color:var(--accent-indigo); font-weight:700;">${item.status}</span> ${item.shipStatus ? ` | <span style="color:var(--accent-emerald);">${item.shipStatus}</span>` : ''}
+                    </div>
+                    <div style="font-size:0.75rem; display:flex; flex-direction:column; gap:3px; margin-top:4px; padding-top:4px; border-top:1px dashed var(--border-color);">
+                        <span style="color:var(--text-primary);"><i class="ri-sticky-note-line"></i> مدير: ${item.note || '-'}</span>
+                        <span style="color:var(--accent-indigo);"><i class="ri-chat-4-line"></i> عميل: ${item.noteClient || '-'}</span>
+                        <span style="color:var(--accent-indigo);"><i class="ri-chat-1-line"></i> مندوب: ${item.noteAgent || '-'}</span>
+                        <span style="color:var(--text-secondary); font-size:0.7rem; margin-top:3px; border-top:1px solid rgba(255,255,255,0.05); padding-top:2px;">
+                            <i class="ri-calendar-line"></i> ${item.date || '-'}
+                        </span>
+                    </div>
+                </div>
+                <button style="background:var(--accent-indigo-light); color:var(--accent-indigo); border:none; padding:8px; border-radius:8px; cursor:pointer;" 
+                        onclick="copyAdminOrderRow('${item.code}', '${item.phone}', '${item.rep}', '${item.store}', '${item.note}', event)" title="نسخ">
+                    <i class="ri-file-copy-2-line"></i>
+                </button>
+            </div>`;
+        });
+        body.innerHTML = html;
+    }
+    
+    document.getElementById('admin-list-modal').classList.add('active');
+};
+
+window.closeAdminListModal = () => {
+    document.getElementById('admin-list-modal').classList.remove('active');
+};
+
+window.copyAdminOrderRow = (code, phone, rep, store, note, event) => {
+    const text = `كود: ${code} | عميل: ${phone} | مندوب: ${rep} | متجر: ${store} | ملاحظة: ${note}`;
+    copyText(text, event);
+};
+
+window.autoSaveStoreAction = (rowIndex) => {
+    const select = document.getElementById("store-status-select");
+    const note = document.getElementById("store-manager-note").value;
+    const statusDiv = document.getElementById("store-save-status");
+    const action = select.value;
+    
+    // عرض رسالة "جاري الحفظ..."
+    if (statusDiv) {
+        statusDiv.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> جاري الحفظ...';
+        statusDiv.style.color = 'var(--accent-amber)';
+    }
+    
+    google.script.run
+        .withSuccessHandler(function(success) {
+            if (success) {
+                // رسالة نجاح سريعة مع تحديث الـ state المحلي فقط لعدم إغلاق النافذة
+                if (statusDiv) {
+                    statusDiv.innerHTML = '<i class="ri-check-line"></i> تم الحفظ';
+                    statusDiv.style.color = 'var(--accent-emerald)';
+                    setTimeout(() => {
+                        if(statusDiv.innerHTML.includes('تم الحفظ')) statusDiv.innerHTML = '';
+                    }, 3000);
+                }
+                
+                if (state.currentOrder) {
+                    state.currentOrder['تبليغ المسؤول'] = action === 'done' ? 'تم' : (action === 'not_done' ? 'لم يتم' : (action === 'new_order' ? 'طلب جديد' : (action === 'resend' ? 'إعادة إرسال' : action)));
+                    state.currentOrder['ملاحظه المسؤول'] = note;
+                    
+                    const index = state.orders.findIndex(o => o.id === state.currentOrder.id);
+                    if (index !== -1) {
+                        state.orders[index] = JSON.parse(JSON.stringify(state.currentOrder));
+                    }
+                    renderDashboard(); // إعادة رسم البطاقات في الخلفية دون إغلاق الشيت
+                }
+            } else {
+                if (statusDiv) {
+                    statusDiv.innerHTML = '<i class="ri-error-warning-line"></i> حدث خطأ';
+                    statusDiv.style.color = 'var(--accent-rose)';
+                }
+            }
+        })
+        .withFailureHandler(function(error) {
+            if (statusDiv) {
+                statusDiv.innerHTML = '<i class="ri-error-warning-line"></i> فشل الحفظ';
+                statusDiv.style.color = 'var(--accent-rose)';
+            }
+            select.disabled = false;
+        })
+        .handleStoreActionBackend(rowIndex, action, note);
+};
+
+// الدالة القديمة للتوافق (لو في كود قديم يستخدمها)
+window.handleStoreAction = (action, rowIndex) => { 
+    const note = document.getElementById("store-manager-note").value; 
+    
+    google.script.run 
+        .withSuccessHandler(function(success) { 
+            if (success) { 
+                closeSheet(); 
+                loadOrders(); 
+            }
+        }) 
+        .handleStoreActionBackend(rowIndex, action, note); 
+};
+
+window.handleStoreActionWithDropdown = (rowIndex) => {
+    autoSaveStoreAction(rowIndex);
+}; 
+
+// دالة فتح مودال التعديل الشامل للمدير
+window.openAdminEditModal = (orderId) => {
+    const order = state.lastAdminSearchResults && state.lastAdminSearchResults.find(o => o.id === orderId);
+    if (!order) return;
+    
+    state.currentAdminEditingOrder = order;
+    
+    const clientStatuses = ["رد و يستلم", "اجل الاستلام", "الغى الطلب", "لم يرد", "استبدال", "استلم"];
+    const shipmentStatuses = ["بانتظار الشحن", "تم التوصيل", "ملغي", "مرتجع جزئي", "قيد التوصيل", "فشل التوصيل", "طلب استبدال"];
+    const storeActionStatuses = ["تم", "لم يتم", "طلب جديد", "إعادة إرسال"];
+    const returnStatuses = ["مرتجع كامل", "مرتجع جزئي", "لم يحدد"];
+
+    const archiveWarning = order.isHistorical ? `
+    <div style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(217, 119, 6, 0.15)); border: 1px solid #f59e0b; border-radius: 8px; padding: 12px; margin-bottom: 20px; display: flex; align-items: flex-start; gap: 10px;">
+        <i class="ri-alert-line" style="color: #f59e0b; font-size: 1.2rem; flex-shrink: 0; margin-top: 2px;"></i>
+        <div>
+            <strong style="color: #f59e0b; display: block; margin-bottom: 4px;">تحذير: هذه طلبية أرشيفية</strong>
+            <span style="color: var(--text-secondary); font-size: 0.85rem; line-height: 1.4;">أنت بصدد تعديل طلبية من الأرشيف. سيتم حفظ التعديلات في قاعدة البيانات الأرشيفية مباشرة.</span>
+        </div>
+    </div>
+    ` : '';
+
+    let html = `
+        ${archiveWarning}
+        <form id="admin-edit-form" onsubmit="saveAdminOrderEdit(event)">
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom: 20px;">
+                
+                <div style="grid-column: span 2; border-bottom: 1px solid var(--border-color); padding-bottom: 6px; font-weight: bold; color: var(--accent-indigo); font-size: 0.95rem;">البيانات الأساسية للطلب (الثابتة)</div>
+                
+                <div class="form-group">
+                    <label style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;display:block;">الموظفة</label>
+                    <input type="text" class="form-control" name="الاسم" value="${order['الاسم'] || ''}" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);outline:none;">
+                </div>
+                
+                <div class="form-group">
+                    <label style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;display:block;">كود الطلب</label>
+                    <input type="text" class="form-control" name="كود الطلب" value="${order['كود الطلب'] || ''}" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);outline:none;">
+                </div>
+                
+                <div class="form-group">
+                    <label style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;display:block;">رقم العميل</label>
+                    <input type="text" class="form-control" name="رقم العميل" value="${order['رقم العميل'] || ''}" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);outline:none;">
+                </div>
+                
+                <div class="form-group">
+                    <label style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;display:block;">رقم المندوب</label>
+                    <input type="text" class="form-control" name="رقم المندوب" value="${order['رقم المندوب'] || ''}" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);outline:none;">
+                </div>
+                
+                <div class="form-group">
+                    <label style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;display:block;">اسم المنتج</label>
+                    <input type="text" class="form-control" name="اسم المنتج" value="${order['اسم المنتج'] || ''}" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);outline:none;">
+                </div>
+                
+                <div class="form-group">
+                    <label style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;display:block;">السعر</label>
+                    <input type="text" class="form-control" name="السعر" value="${order['السعر'] || ''}" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);outline:none;">
+                </div>
+                
+                <div class="form-group">
+                    <label style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;display:block;">المتجر</label>
+                    <input type="text" class="form-control" name="المتجر" value="${order['المتجر'] || ''}" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);outline:none;">
+                </div>
+                
+                <div class="form-group">
+                    <label style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;display:block;">التاريخ والوقت</label>
+                    <input type="text" class="form-control" name="التاريخ" value="${order['التاريخ'] || ''}" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);outline:none;">
+                </div>
+
+                <div class="form-group" style="grid-column: span 2;">
+                    <label style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;display:block;">ملاحظة الإدارة</label>
+                    <textarea class="form-control" name="ملاحظة" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);outline:none;min-height: 60px;">${order['ملاحظة'] || ''}</textarea>
+                </div>
+                
+                <div style="grid-column: span 2; border-bottom: 1px solid var(--border-color); padding-top: 10px; padding-bottom: 6px; font-weight: bold; color: var(--accent-indigo); font-size: 0.95rem;">بيانات وملاحظات الموظفات</div>
+                
+                <div class="form-group">
+                    <label style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;display:block;">عدد مرات الاتصال</label>
+                    <input type="number" class="form-control" name="عدد مرات الاتصال" value="${order['عدد مرات الاتصال'] || '0'}" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);outline:none;">
+                </div>
+
+                <div class="form-group">
+                    <label style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;display:block;">الحالة - العميل</label>
+                    <select class="form-control" name="الحالة - العميل" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);outline:none;">
+                        <option value="">لم يحدد</option>
+                        ${clientStatuses.map(s => `<option value="${s}" ${order['الحالة - العميل'] === s ? 'selected' : ''}>${s}</option>`).join('')}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;display:block;">الحالة - الشحنة</label>
+                    <select class="form-control" name="الحالة - الشحنه" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);outline:none;">
+                        <option value="">لم تحدد</option>
+                        ${shipmentStatuses.map(s => `<option value="${s}" ${order['الحالة - الشحنه'] === s ? 'selected' : ''}>${s}</option>`).join('')}
+                    </select>
+                </div>
+
+                <div></div>
+
+                <div class="form-group" style="grid-column: span 2;">
+                    <label style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;display:block;">ملاحظة - العميل</label>
+                    <textarea class="form-control" name="ملاحظة - العميل" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);outline:none;min-height: 60px;">${order['ملاحظة - العميل'] || ''}</textarea>
+                </div>
+
+                <div class="form-group" style="grid-column: span 2;">
+                    <label style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;display:block;">ملاحظة - المندوب</label>
+                    <textarea class="form-control" name="ملاحظة - المندوب" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);outline:none;min-height: 60px;">${order['ملاحظة - المندوب'] || ''}</textarea>
+                </div>
+
+                <div style="grid-column: span 2; border-bottom: 1px solid var(--border-color); padding-top: 10px; padding-bottom: 6px; font-weight: bold; color: var(--accent-indigo); font-size: 0.95rem;">تبليغ وملاحظات المسؤولين</div>
+
+                <div class="form-group">
+                    <label style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;display:block;">تبليغ المسؤول</label>
+                    <select class="form-control" name="تبليغ المسؤول" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);outline:none;">
+                        <option value="">لم يحدد</option>
+                        ${storeActionStatuses.map(s => `<option value="${s}" ${order['تبليغ المسؤول'] === s ? 'selected' : ''}>${s}</option>`).join('')}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;display:block;">حالة المرتجع</label>
+                    <input type="text" class="form-control" name="حالة المرتجع" value="${order['حالة المرتجع'] || ''}" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);outline:none;">
+                </div>
+
+                <div class="form-group" style="grid-column: span 2;">
+                    <label style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;display:block;">ملاحظة المسؤول</label>
+                    <textarea class="form-control" name="ملاحظه المسؤول" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);outline:none;min-height: 60px;">${order['ملاحظه المسؤول'] || order['ملاحظة مسؤول المتجر'] || ''}</textarea>
+                </div>
+
+            </div>
+
+            <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+                <button type="button" class="btn-secondary" style="padding: 10px 20px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-secondary); cursor: pointer;" onclick="closeAdminEditModal()">إلغاء</button>
+                <button type="submit" id="admin-save-edit-btn" class="btn-primary" style="padding: 10px 20px; border-radius: 8px; border: none; background: linear-gradient(135deg, var(--accent-indigo), var(--accent-purple)); color: white; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                    <i class="ri-save-line"></i> حفظ التغييرات
+                </button>
+            </div>
+            
+            <div id="admin-edit-save-status" style="text-align: center; margin-top: 15px; font-size: 0.85rem; font-weight: bold; min-height: 20px;"></div>
+        </form>
+    `;
+    
+    document.getElementById('admin-edit-body').innerHTML = html;
+    document.getElementById('admin-edit-modal').classList.add('active');
+    document.body.style.overflow = 'hidden'; 
+};
+
+window.closeAdminEditModal = () => {
+    document.getElementById('admin-edit-modal').classList.remove('active');
+    document.body.style.overflow = '';
+    state.currentAdminEditingOrder = null;
+};
+
+window.saveAdminOrderEdit = (event) => {
+    event.preventDefault();
+    if (!state.currentAdminEditingOrder) return;
+    
+    const form = document.getElementById('admin-edit-form');
+    const formData = new FormData(form);
+    const saveBtn = document.getElementById('admin-save-edit-btn');
+    const statusDiv = document.getElementById('admin-edit-save-status');
+    
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> جاري الحفظ...';
+    statusDiv.innerHTML = `
+        <div style="color: var(--text-secondary); display: inline-flex; align-items: center; gap: 8px; width: 100%; justify-content: center;">
+            <i class="ri-loader-4-line ri-spin"></i>
+            <span>جاري حفظ التعديلات على السيرفر...</span>
+        </div>`;
+    
+    const updated = { ...state.currentAdminEditingOrder };
+    
+    for (let pair of formData.entries()) {
+        const key = pair[0];
+        const val = pair[1];
+        updated[key] = val;
+    }
+    
+    updated['ملاحظه المسؤول'] = updated['ملاحظه المسؤول'];
+    updated['عدد مرات الاتصال'] = parseInt(updated['عدد مرات الاتصال']) || 0;
+    updated['أكثر من 5 محاولات'] = updated['عدد مرات الاتصال'] > 5 ? 'أكثر من 5' : '5 أو أقل';
+    
+    // اكتشاف إذا كانت الطلبية أرشيفية
+    const isArchived = updated.isHistorical || false;
+    const updateFunction = isArchived ? 'updateArchivedOrderData' : 'updateOrderData';
+    
+    google.script.run
+        .withSuccessHandler(function(success) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="ri-save-line"></i> حفظ التغييرات';
+            
+            if (success) {
+                statusDiv.innerHTML = `
+                    <div style="background: rgba(16, 185, 129, 0.1); color: var(--accent-emerald); padding: 10px; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.2); display: inline-flex; align-items: center; gap: 8px; font-weight: 700; width: 100%; justify-content: center;">
+                        <i class="ri-checkbox-circle-line"></i>
+                        <span>تم حفظ التعديلات بنجاح${isArchived ? ' (أرشيفية)' : ''}</span>
+                    </div>`;
+                
+                if (state.lastAdminSearchResults) {
+                    const idx = state.lastAdminSearchResults.findIndex(o => o.id === updated.id);
+                    if (idx !== -1) {
+                        state.lastAdminSearchResults[idx] = updated;
+                    }
+                }
+                
+                renderAdminSearchResults(state.lastAdminSearchResults);
+                
+                setTimeout(() => {
+                    closeAdminEditModal();
+                }, 1200);
+            } else {
+                statusDiv.innerHTML = `
+                    <div style="background: rgba(244, 63, 94, 0.1); color: var(--accent-rose); padding: 10px; border-radius: 8px; border: 1px solid rgba(244, 63, 94, 0.2); display: inline-flex; align-items: center; gap: 8px; font-weight: 700; width: 100%; justify-content: center;">
+                        <i class="ri-error-warning-line"></i>
+                        <span>فشل الحفظ: لم نتمكن من تحديد موقع الصف</span>
+                    </div>`;
+            }
+        })
+        .withFailureHandler(function(error) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="ri-save-line"></i> حفظ التغييرات';
+            statusDiv.innerHTML = `
+                <div style="background: rgba(244, 63, 94, 0.1); color: var(--accent-rose); padding: 10px; border-radius: 8px; border: 1px solid rgba(244, 63, 94, 0.2); display: inline-flex; align-items: center; gap: 8px; font-weight: 700; width: 100%; justify-content: center;">
+                    <i class="ri-error-warning-line"></i>
+                    <span>خطأ في الاتصال: ${error.message}</span>
+                </div>`;
+        })
+        [isArchived ? 'updateArchivedOrderData' : 'updateOrderData'](updated);
+};
+
+// ===============================
+// صفحة الطلبات الجاهزة للتوزيع
+// ===============================
+
+const renderDistributionOrders = () => {
+    google.script.run
+        .withSuccessHandler(function(orders) {
+            if (!orders || orders.length === 0) {
+                document.getElementById('admin-distribution-content').innerHTML = `
+                    <div style="text-align:center;padding:3rem;color:var(--text-secondary);">
+                        <i class="ri-inbox-archive-line" style="font-size:3rem;display:block;margin-bottom:10px;"></i>
+                        لا توجد طلبات مؤجلة
+                    </div>
+                `;
+                return;
+            }
+            
+            // ترتيب الطلبات من الأحدث للأقدم
+            orders.sort((a, b) => {
+                const dateA = a['التاريخ'] ? new Date(a['التاريخ'].split('/').reverse().join('-')).getTime() : 0;
+                const dateB = b['التاريخ'] ? new Date(b['التاريخ'].split('/').reverse().join('-')).getTime() : 0;
+                return dateB - dateA; // من الأحدث للأقدم
+            });
+            
+            const html = orders.map(order => `
+                <div class="distribution-card" style="background: var(--card-bg); border: 2px solid var(--border-color); border-left: 4px solid var(--text-secondary); border-radius: 12px; padding: 16px; margin-bottom: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; transition: all 0.3s ease;" data-row="${order._rowIndex}">
+                    <div>
+                        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">الموظفة</div>
+                        <div style="color: var(--text-primary); font-weight: 700; font-size: 0.95rem; margin-bottom: 12px;">${order['الاسم']}</div>
+                        
+                        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">كود الطلب</div>
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                            <span style="color: var(--accent-indigo); font-weight: 700; font-family: monospace; font-size: 0.9rem;">${order['كود الطلب']}</span>
+                            <button class="icon-btn" onclick="copyText('${order['كود الطلب']}', event)" title="نسخ" style="background: rgba(99, 102, 241, 0.1); color: var(--accent-indigo); padding: 4px 8px; border-radius: 6px;">
+                                <i class="ri-file-copy-line" style="font-size: 0.9rem;"></i>
+                            </button>
+                        </div>
+                        
+                        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">المتجر</div>
+                        <div style="color: var(--text-primary); font-weight: 600; margin-bottom: 12px;">${order['المتجر']}</div>
+                        
+                        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">التاريخ</div>
+                        <div style="color: var(--text-secondary); font-weight: 500; font-size: 0.85rem; margin-bottom: 12px;">${order['التاريخ'] || 'غير محدد'}</div>
+                    </div>
+                    
+                    <div>
+                        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">رقم العميل</div>
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                            <span style="color: var(--text-primary); font-weight: 600; font-family: monospace;">${order['رقم العميل']}</span>
+                            <button class="icon-btn" onclick="copyText('${order['رقم العميل']}', event)" title="نسخ" style="background: rgba(99, 102, 241, 0.1); color: var(--accent-indigo); padding: 4px 8px; border-radius: 6px;">
+                                <i class="ri-file-copy-line" style="font-size: 0.9rem;"></i>
+                            </button>
+                        </div>
+                        
+                        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">ملاحظة العميل</div>
+                        <div style="color: var(--text-secondary); font-size: 0.85rem; line-height: 1.4; max-height: 80px; overflow-y: auto; background: rgba(59, 130, 246, 0.05); padding: 8px; border-radius: 6px; border-right: 2px solid var(--accent-indigo);">
+                            ${order['ملاحظة - العميل'] || '(لا توجد ملاحظات)'}
+                        </div>
+                    </div>
+                    
+                    <!-- ملاحظات الطلب الشاملة -->
+                    <div style="grid-column: span 2;">
+                        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">ملاحظات الطلب</div>
+                        <div style="color: var(--text-secondary); font-size: 0.85rem; line-height: 1.4; max-height: 60px; overflow-y: auto; background: rgba(156, 163, 175, 0.05); padding: 8px; border-radius: 6px;">
+                            ${order['ملاحظة'] || '(لا توجد ملاحظات)'}
+                        </div>
+                    </div>
+                    
+                    <!-- زر التحديث -->
+                    <div style="grid-column: span 2; display: flex; gap: 8px;">
+                        <button onclick="markAsDistributed(${order._rowIndex})" style="flex: 1; padding: 10px; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 8px; font-weight: 700; font-family: inherit; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s; hover:opacity:0.9;">
+                            <i class="ri-check-double-line"></i> جاهز للتوزيع
+                        </button>
+                        <button onclick="removeFromDistribution(${order._rowIndex}); return false;" title="حذف الطلب من القائمة" style="flex: 0.8; padding: 10px; background: rgba(239, 68, 68, 0.2); color: var(--accent-rose); border: 1px solid var(--accent-rose); border-radius: 8px; font-weight: 700; font-family: inherit; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s;">
+                            <i class="ri-delete-bin-line"></i> حذف
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+            
+            document.getElementById('admin-distribution-content').innerHTML = html;
+        })
+        .getDistributionOrders();
+};
+
+const markAsDistributed = (rowIndex) => {
+    google.script.run
+        .withSuccessHandler(function(success) {
+            if (success) {
+                // تغيير لون الحدود إلى الأخضر
+                const card = document.querySelector(`[data-row="${rowIndex}"]`);
+                if (card) {
+                    card.style.borderLeft = '4px solid #10b981';
+                    card.classList.add('ready-for-distribution');
+                }
+                alert('✅ تم تحديث الطلب');
+                setTimeout(() => renderDistributionOrders(), 500);
+            } else {
+                alert('❌ حدث خطأ في التحديث');
+            }
+        })
+        .withFailureHandler(function(error) {
+            alert('❌ خطأ: ' + error);
+        })
+        .updateDistributionStatus(rowIndex, 'جاهز للتوزيع');
+};
+
+const removeFromDistribution = (rowIndex) => {
+    console.log('Deleting order from row:', rowIndex);
+    if (!confirm('⚠️ هل أنت متأكد من حذف هذا الطلب كاملاً من النظام؟\n\nهذا الإجراء لا يمكن التراجع عنه!')) {
+        return;
+    }
+    
+    google.script.run
+        .withSuccessHandler(function(success) {
+            console.log('Delete success:', success);
+            if (success) {
+                // إزالة الكرت من الواجهة بسلاسة
+                const card = document.querySelector(`[data-row="${rowIndex}"]`);
+                if (card) {
+                    card.style.opacity = '0';
+                    card.style.transform = 'translateX(100%)';
+                    setTimeout(() => card.remove(), 300);
+                }
+                alert('✅ تم حذف الطلب بنجاح من النظام');
+                setTimeout(() => renderDistributionOrders(), 500);
+            } else {
+                alert('❌ حدث خطأ في الحذف');
+            }
+        })
+        .withFailureHandler(function(error) {
+            console.log('Delete error:', error);
+            alert('❌ خطأ: ' + error);
+        })
+        .deleteOrderFromDraft(rowIndex);
+};
+</script>

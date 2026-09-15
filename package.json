@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "description": "نظام إدارة الطلبات والمتابعة",
   "scripts": {
-    "start": "echo 'Ready to serve static files'"
+    "start": "echo 'Ready to serve static files'",
+    "dev": "echo 'Static files ready - no build needed'"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.37.0"
   }
 }
